@@ -2,13 +2,13 @@ package gonetic
 
 // GoNetic package to create peer to peer connections
 
-//TODO: adding ipv6 support / 2 versions ipv4 & ipv6 -> Dif. builds
-
 import (
 	"bufio"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -59,12 +59,13 @@ func (p *Peer) Start() error {
 		port = "0"
 	}
 	var err error
-	p.listener, err = net.Listen("tcp", getLocalIP()+":"+p.Port)
+	// Use IPv6
+	p.listener, err = net.Listen("tcp6", "["+getLocalIP()+"]:"+p.Port)
 	if err != nil {
 		return fmt.Errorf("failed to start node on port %s: %v", p.Port, err)
 	}
 	addr := p.listener.Addr().(*net.TCPAddr)
-	p.connString = fmt.Sprintf("%s:%d", getLocalIP(), addr.Port)
+	p.connString = fmt.Sprintf("[%s]:%d", getLocalIP(), addr.Port)
 	p.Port = fmt.Sprintf("%d", addr.Port)
 
 	p.wg.Add(1)
@@ -221,6 +222,24 @@ func (p *Peer) Broadcast(message string) {
 	})
 }
 
+func (p *Peer) Connect(connString string) error {
+	conn, err := net.Dial("tcp6", connString)
+	if err != nil {
+		return fmt.Errorf("failed to connect to peer %s: %v", connString, err)
+	}
+
+	peerID := conn.RemoteAddr().String()
+	_, exists := p.connectedPeers.Load(peerID)
+	if exists {
+		conn.Close()
+		return fmt.Errorf("peer %s is already connected", peerID)
+	}
+
+	p.connectedPeers.Store(peerID, conn)
+	go p.handleConnection(conn)
+	return nil
+}
+
 func getLocalIP() string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -248,30 +267,26 @@ func getLocalIP() string {
 			if ip == nil || ip.IsLoopback() {
 				continue
 			}
-			if ip.To4() != nil {
+			// Only accept IPv6 addresses
+			if ip.To4() == nil && ip.To16() != nil {
 				return ip.String()
 			}
 		}
 	}
-	return ""
+	return "::"
 }
 
-func (p *Peer) Connect(connString string) error {
-	conn, err := net.Dial("tcp", connString)
+func GetPublicIP() string {
+	resp, err := http.Get("https://icanhazip.com/")
 	if err != nil {
-		return fmt.Errorf("failed to connect to peer %s: %v", connString, err)
+		return ""
 	}
-
-	peerID := conn.RemoteAddr().String()
-	_, exists := p.connectedPeers.Load(peerID)
-	if exists {
-		conn.Close()
-		return fmt.Errorf("peer %s is already connected", peerID)
+	defer resp.Body.Close()
+	ip, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "Error reading response"
 	}
-
-	p.connectedPeers.Store(peerID, conn)
-	go p.handleConnection(conn)
-	return nil
+	return string(ip)
 }
 
 func (p *Peer) GetConnectedPeers() []string {
