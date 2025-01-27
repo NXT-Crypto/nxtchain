@@ -57,6 +57,12 @@ func Error(format string, v ...interface{}) {
 	}
 }
 
+func NewLine() {
+	if debugEnabled && debugLogger != nil {
+		debugLogger.Println("=============================================")
+	}
+}
+
 func PrintLogo(addText string, dev bool) {
 	logo := fmt.Sprintf(`   _  ___  _______________ _____   _____  __
   / |/ / |/_/_  __/ ___/ // / _ | /  _/ |/ /
@@ -67,7 +73,7 @@ func PrintLogo(addText string, dev bool) {
 	fmt.Print(logo)
 
 	if dev {
-		devMsg := "\n=============================================\n   [ D E V E L O P E M E N T    M O D E ]\n============================================="
+		devMsg := "\n+===========================================+\n|< [ D E V E L O P E M E N T  -  M O D E ] >|\n+===========================================+"
 		fmt.Println(devMsg)
 	}
 }
