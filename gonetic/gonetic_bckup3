@@ -1,0 +1,352 @@
+package gonetic
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"strings"
+	"sync"
+	"time"
+)
+
+type MessageType int
+
+const (
+	MessageTypeData  MessageType = 0
+	MessageTypePeers MessageType = 1
+)
+
+type Message struct {
+	Type    MessageType `json:"type"`
+	Payload string      `json:"payload"`
+	Sender  string      `json:"sender"`
+}
+
+type Peer struct {
+	Address            string
+	Port               string
+	Connections        map[string]net.Conn
+	KnownPeers         map[string]bool
+	PendingConnections map[string]bool
+	MaxConnections     int
+	MessageChan        chan Message
+	listener           net.Listener
+	stopChan           chan struct{}
+	mutex              sync.Mutex
+}
+
+func NewPeer(maxConnections int, port string) (*Peer, error) {
+	listener, err := net.Listen("tcp6", fmt.Sprintf("[::]:%s", port))
+	if err != nil {
+		return nil, err
+	}
+
+	_, actualPort, _ := net.SplitHostPort(listener.Addr().String())
+
+	p := &Peer{
+		Port:               actualPort,
+		Address:            getIPv6Address(),
+		Connections:        make(map[string]net.Conn),
+		KnownPeers:         make(map[string]bool),
+		PendingConnections: make(map[string]bool),
+		MaxConnections:     maxConnections,
+		MessageChan:        make(chan Message, 100),
+		listener:           listener,
+		stopChan:           make(chan struct{}),
+	}
+
+	p.KnownPeers[p.GetFullAddress()] = true
+	return p, nil
+}
+
+func normalizeAddress(addr string) string {
+	if strings.Contains(addr, "%") {
+		return strings.Split(addr, "%")[0]
+	}
+	return addr
+}
+
+func (p *Peer) Start() {
+	go p.startListener()
+	go p.manageConnections()
+	go p.peerExchangeLoop()
+}
+
+func (p *Peer) Stop() {
+	close(p.stopChan)
+	p.listener.Close()
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	for addr, conn := range p.Connections {
+		conn.Close()
+		delete(p.Connections, addr)
+	}
+}
+
+func (p *Peer) Connect(addr string) error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	normalizedAddr := normalizeAddress(addr)
+	if normalizedAddr == p.GetFullAddress() {
+		return errors.New("cannot connect to self")
+	}
+
+	if p.isConnected(normalizedAddr) || p.PendingConnections[normalizedAddr] {
+		return errors.New("already connected or connecting")
+	}
+
+	if len(p.Connections)+len(p.PendingConnections) >= p.MaxConnections {
+		return errors.New("max connections reached")
+	}
+
+	p.PendingConnections[normalizedAddr] = true
+	go p.dialAndHandle(addr)
+	return nil
+}
+
+func (p *Peer) dialAndHandle(addr string) {
+	defer func() {
+		p.mutex.Lock()
+		delete(p.PendingConnections, normalizeAddress(addr))
+		p.mutex.Unlock()
+	}()
+
+	conn, err := net.DialTimeout("tcp6", addr, 5*time.Second)
+	if err != nil {
+		p.mutex.Lock()
+		p.KnownPeers[normalizeAddress(addr)] = false
+		p.mutex.Unlock()
+		return
+	}
+
+	p.handleNewConnection(conn, false)
+}
+
+func (p *Peer) Broadcast(message string) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	msg := Message{
+		Type:    MessageTypeData,
+		Payload: message,
+		Sender:  p.GetFullAddress(),
+	}
+
+	for addr, conn := range p.Connections {
+		go func(c net.Conn, a string) {
+			encoder := json.NewEncoder(c)
+			if err := encoder.Encode(msg); err != nil {
+				p.removeConnection(a)
+			}
+		}(conn, addr)
+	}
+}
+
+func (p *Peer) SendMessage(addr string, message string) error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	conn, exists := p.Connections[normalizeAddress(addr)]
+	if !exists {
+		return errors.New("not connected to peer")
+	}
+
+	msg := Message{
+		Type:    MessageTypeData,
+		Payload: message,
+		Sender:  p.GetFullAddress(),
+	}
+
+	return json.NewEncoder(conn).Encode(msg)
+}
+
+func (p *Peer) GetFullAddress() string {
+	return fmt.Sprintf("[%s]:%s", p.Address, p.Port)
+}
+
+func (p *Peer) startListener() {
+	for {
+		conn, err := p.listener.Accept()
+		if err != nil {
+			select {
+			case <-p.stopChan:
+				return
+			default:
+				continue
+			}
+		}
+		go p.handleNewConnection(conn, true)
+	}
+}
+
+func (p *Peer) handleNewConnection(conn net.Conn, incoming bool) {
+	remoteAddr := normalizeAddress(conn.RemoteAddr().String())
+
+	p.mutex.Lock()
+	if _, exists := p.Connections[remoteAddr]; exists {
+		p.mutex.Unlock()
+		conn.Close()
+		return
+	}
+
+	if len(p.Connections) >= p.MaxConnections {
+		p.mutex.Unlock()
+		conn.Close()
+		return
+	}
+
+	p.Connections[remoteAddr] = conn
+	p.KnownPeers[remoteAddr] = true
+	p.mutex.Unlock()
+
+	go p.handleConnection(conn)
+
+	if !incoming {
+		p.exchangePeers(conn)
+	}
+}
+
+func (p *Peer) handleConnection(conn net.Conn) {
+	defer p.removeConnection(normalizeAddress(conn.RemoteAddr().String()))
+
+	decoder := json.NewDecoder(conn)
+	for {
+		var msg Message
+		if err := decoder.Decode(&msg); err != nil {
+			return
+		}
+
+		switch msg.Type {
+		case MessageTypeData:
+			p.MessageChan <- msg
+		case MessageTypePeers:
+			var peers []string
+			if err := json.Unmarshal([]byte(msg.Payload), &peers); err == nil {
+				p.addNewPeers(peers)
+			}
+		}
+	}
+}
+
+func (p *Peer) peerExchangeLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			p.mutex.Lock()
+			connections := make([]net.Conn, 0, len(p.Connections))
+			for _, conn := range p.Connections {
+				connections = append(connections, conn)
+			}
+			p.mutex.Unlock()
+
+			for _, conn := range connections {
+				p.exchangePeers(conn)
+			}
+		case <-p.stopChan:
+			return
+		}
+	}
+}
+
+func (p *Peer) exchangePeers(conn net.Conn) {
+	p.mutex.Lock()
+	peers := make([]string, 0, len(p.KnownPeers))
+	for peer := range p.KnownPeers {
+		peers = append(peers, peer)
+	}
+	p.mutex.Unlock()
+
+	peersJSON, _ := json.Marshal(peers)
+	msg := Message{
+		Type:    MessageTypePeers,
+		Payload: string(peersJSON),
+		Sender:  p.GetFullAddress(),
+	}
+
+	encoder := json.NewEncoder(conn)
+	encoder.Encode(msg)
+}
+
+func (p *Peer) addNewPeers(peers []string) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	for _, peer := range peers {
+		normalizedPeer := normalizeAddress(peer)
+		if normalizedPeer == p.GetFullAddress() {
+			continue
+		}
+		if _, exists := p.KnownPeers[normalizedPeer]; !exists {
+			p.KnownPeers[normalizedPeer] = false
+		}
+	}
+}
+
+func (p *Peer) manageConnections() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			p.mutex.Lock()
+			availableSlots := p.MaxConnections - (len(p.Connections) + len(p.PendingConnections))
+			if availableSlots > 0 {
+				tryPeers := make([]string, 0)
+				for peer, connected := range p.KnownPeers {
+					if !connected && !p.PendingConnections[peer] && peer != p.GetFullAddress() {
+						tryPeers = append(tryPeers, peer)
+					}
+				}
+
+				for i := 0; i < availableSlots && i < len(tryPeers); i++ {
+					peer := tryPeers[i]
+					p.PendingConnections[peer] = true
+					go p.dialAndHandle(peer)
+				}
+			}
+			p.mutex.Unlock()
+		case <-p.stopChan:
+			return
+		}
+	}
+}
+
+func (p *Peer) isConnected(addr string) bool {
+	_, exists := p.Connections[normalizeAddress(addr)]
+	return exists
+}
+
+func (p *Peer) removeConnection(addr string) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	normalizedAddr := normalizeAddress(addr)
+	if conn, exists := p.Connections[normalizedAddr]; exists {
+		conn.Close()
+		delete(p.Connections, normalizedAddr)
+	}
+	p.KnownPeers[normalizedAddr] = false
+}
+
+func getIPv6Address() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if ok && !ipNet.IP.IsLoopback() && ipNet.IP.To4() == nil {
+			return ipNet.IP.String()
+		}
+	}
+	return ""
+}

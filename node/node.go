@@ -30,10 +30,24 @@ func main() {
 
 // * MAIN * //
 func start(Peer *gonetic.Peer) {
+	nextutils.NewLine()
+	nextutils.Debug("%s", "Beginning node main actions...")
+	nextutils.Debug("%s", "Connection string: "+Peer.GetConnString())
 	fmt.Println("YOUR CONNECTION STRING: " + Peer.GetConnString())
 
-	// ~ NODE MAIN ACTIONS ~ //
+	// ~ NODE MAIN ACTIONS & LOG ~ //
+	for {
+		time.Sleep(1 * time.Second)
+		conns := Peer.GetConnectedPeers()
+		if len(conns) > 0 {
+			fmt.Println(conns)
+		}
+	}
+}
 
+// * PEER OUTPUT HANDLER * //
+func handleEvents(event string) {
+	nextutils.Debug("%s", "[PEER EVENT] "+event)
 }
 
 // * PEER TO PEER * //
@@ -41,19 +55,26 @@ func createPeer(seedNode string) {
 	nextutils.NewLine()
 	nextutils.Debug("%s", "Creating peer...")
 
-	handlePeerEvents := func(event string) {
-		nextutils.Debug("%s", "[EVENT] "+event)
-	}
-
 	maxConnections, err := strconv.Atoi(strconv.FormatFloat(config.Fields["max_connections"].(float64), 'f', 0, 64))
 	if err != nil {
 		nextutils.Error("Error: max_connections is not a valid integer")
 		return
 	}
-	default_port, err := strconv.Atoi(config.Fields["default_port"].(string))
-	if err != nil {
-		nextutils.Error("Error: default_port is not a valid integer")
-		return
+
+	peerOutput := func(event string) {
+		go handleEvents(event)
+	}
+
+	defaultPortStr := config.Fields["default_port"].(string)
+	var default_port int
+	if defaultPortStr == "" {
+		default_port = 0
+	} else {
+		default_port, err = strconv.Atoi(defaultPortStr)
+		if err != nil {
+			nextutils.Error("Error: default_port is not a valid integer")
+			return
+		}
 	}
 	seedNodesInterface := config.Fields["seed_nodes"].([]interface{})
 	seedNodes := make([]string, len(seedNodesInterface))
@@ -65,21 +86,35 @@ func createPeer(seedNode string) {
 		seedNodes = append(seedNodes, seedNode)
 	}
 
-	Peer, err := gonetic.NewPeer(handlePeerEvents, maxConnections, strconv.Itoa(default_port))
+	port := ""
+	if default_port != 0 {
+		port = strconv.Itoa(default_port)
+	}
+	Peer, err := gonetic.NewPeer(peerOutput, maxConnections, port)
 	if err != nil {
 		nextutils.Error("Error creating peer: %v", err)
 		return
 	}
 	nextutils.Debug("%s", "Peer created. Starting peer...")
 	nextutils.Debug("%s", "Max connections: "+strconv.Itoa(maxConnections))
-	nextutils.Debug("%s", "Peer port: "+strconv.Itoa(default_port))
+	port = Peer.Port
+	if default_port == 0 {
+		nextutils.Debug("%s", "Peer port: random, see below ")
+	} else {
+		nextutils.Debug("%s", "Peer port: "+port)
+	}
+	go Peer.Start()
+	time.Sleep(2 * time.Second)
 	if len(seedNodes) == 0 {
 		nextutils.Debug("%s", "No seed nodes available, you have to manually add them or connect.")
 	} else {
 		nextutils.Debug("%s", "Seed nodes: "+strings.Join(seedNodes, ", "))
+		nextutils.Debug("%s", "Connecting to seed nodes...")
+		for _, seedNode := range seedNodes {
+			go Peer.Connect(seedNode)
+		}
+
 	}
-	go Peer.Start()
-	time.Sleep(1 * time.Second)
 	go clitools.UpdateCmdTitle(Peer)
 	start(Peer)
 }

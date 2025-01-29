@@ -1,0 +1,413 @@
+package gonetic
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"net"
+	"strings"
+	"sync"
+	"time"
+)
+
+type OutputFunc func(string)
+
+type Peer struct {
+	connString     string
+	maxPeers       int
+	output         OutputFunc
+	listener       net.Listener
+	stopChan       chan struct{}
+	wg             sync.WaitGroup
+	connectionLock sync.Mutex
+	connections    map[string]net.Conn
+	peerCache      []string
+	peerCacheLock  sync.Mutex
+}
+
+const (
+	connectionTimeout = 5 * time.Second
+	reconnectInterval = 10 * time.Second
+)
+
+func NewPeer(output OutputFunc, maxPeers int, port ...string) (*Peer, error) {
+	if maxPeers < 2 {
+		return nil, fmt.Errorf("minimum 2 peers required")
+	}
+
+	if output == nil {
+		output = func(msg string) { fmt.Println(msg) }
+	}
+
+	p := &Peer{
+		maxPeers:    maxPeers,
+		output:      output,
+		stopChan:    make(chan struct{}),
+		connections: make(map[string]net.Conn),
+		peerCache:   make([]string, 0),
+	}
+
+	listenPort := "0"
+	if len(port) > 0 && port[0] != "" {
+		listenPort = port[0]
+	}
+
+	listener, err := net.Listen("tcp6", net.JoinHostPort("", listenPort))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create listener: %w", err)
+	}
+
+	p.listener = listener
+	addr := p.listener.Addr().(*net.TCPAddr)
+	p.connString = fmt.Sprintf("[%s]:%d", addr.IP, addr.Port)
+
+	return p, nil
+}
+
+func (p *Peer) Start() error {
+	p.wg.Add(1)
+	go p.acceptConnections()
+
+	p.wg.Add(1)
+	go p.peerMaintenance()
+
+	p.output(fmt.Sprintf("Peer started at %s", p.connString))
+	return nil
+}
+
+func (p *Peer) acceptConnections() {
+	defer p.wg.Done()
+
+	for {
+		select {
+		case <-p.stopChan:
+			return
+		default:
+			conn, err := p.listener.Accept()
+			if err != nil {
+				select {
+				case <-p.stopChan:
+					return
+				default:
+					p.output(fmt.Sprintf("Connection error: %v", err))
+					continue
+				}
+			}
+
+			go p.handleConnection(conn)
+		}
+	}
+}
+
+func (p *Peer) handleMessages(reader *bufio.Reader, conn net.Conn) {
+	for {
+		if err := conn.SetReadDeadline(time.Now().Add(connectionTimeout * 2)); err != nil {
+			p.output(fmt.Sprintf("Failed to set read deadline: %v", err))
+			return
+		}
+		msg, err := reader.ReadString('\n')
+		if err != nil {
+			if err.Error() == "EOF" {
+				p.output("Connection closed by remote peer")
+			} else {
+				p.output(fmt.Sprintf("Connection error: %v", err))
+			}
+			return
+		}
+		msg = strings.TrimSpace(msg)
+		if strings.HasPrefix(msg, "PEERS:") {
+			peers := strings.Split(strings.TrimPrefix(msg, "PEERS:"), ",")
+			p.updatePeerCache(peers)
+		}
+	}
+}
+
+func (p *Peer) handleIncomingConnection(conn net.Conn) {
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+
+	conn.SetDeadline(time.Now().Add(connectionTimeout))
+	msg, err := reader.ReadString('\n')
+	if err != nil {
+		p.output(fmt.Sprintf("Handshake failed: %v", err))
+		return
+	}
+	msg = strings.TrimSpace(msg)
+	if !strings.HasPrefix(msg, "HELLO:") {
+		p.output("Invalid handshake message")
+		return
+	}
+	peerAddr := strings.TrimPrefix(msg, "HELLO:")
+	if peerAddr == p.connString {
+		p.output("Rejecting self-connection")
+		return
+	}
+
+	_, err = fmt.Fprintf(conn, "HELLO:%s\n", p.connString)
+	if err != nil {
+		p.output(fmt.Sprintf("Failed to send HELLO response: %v", err))
+		return
+	}
+
+	p.addConnection(peerAddr, conn)
+	defer p.removeConnection(peerAddr)
+
+	conn.SetDeadline(time.Time{})
+	p.output(fmt.Sprintf("Connected to %s", peerAddr))
+
+	p.sharePeers(conn, peerAddr)
+	p.handleMessages(reader, conn)
+}
+
+func (p *Peer) handleOutgoingConnection(conn net.Conn, addr string) {
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+
+	_, err := fmt.Fprintf(conn, "HELLO:%s\n", p.connString)
+	if err != nil {
+		p.output(fmt.Sprintf("Failed to send HELLO: %v", err))
+		return
+	}
+
+	conn.SetDeadline(time.Now().Add(connectionTimeout))
+	msg, err := reader.ReadString('\n')
+	if err != nil {
+		p.output(fmt.Sprintf("Handshake failed: %v", err))
+		return
+	}
+	msg = strings.TrimSpace(msg)
+	if !strings.HasPrefix(msg, "HELLO:") {
+		p.output("Invalid handshake response")
+		return
+	}
+	peerAddr := strings.TrimPrefix(msg, "HELLO:")
+	if peerAddr != addr {
+		p.output(fmt.Sprintf("Address mismatch: expected %s, got %s", addr, peerAddr))
+		return
+	}
+
+	p.addConnection(peerAddr, conn)
+	defer p.removeConnection(peerAddr)
+
+	conn.SetDeadline(time.Time{})
+	p.output(fmt.Sprintf("Connected to %s", peerAddr))
+
+	p.sharePeers(conn, peerAddr)
+	p.handleMessages(reader, conn)
+}
+
+func (p *Peer) addConnection(addr string, conn net.Conn) {
+	p.connectionLock.Lock()
+	defer p.connectionLock.Unlock()
+	if len(p.connections) < p.maxPeers {
+		p.connections[addr] = conn
+	}
+}
+
+func (p *Peer) removeConnection(addr string) {
+	p.connectionLock.Lock()
+	defer p.connectionLock.Unlock()
+	delete(p.connections, addr)
+}
+
+func (p *Peer) handleConnection(conn net.Conn) {
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.SetDeadline(time.Now().Add(connectionTimeout))
+
+	msg, err := reader.ReadString('\n')
+	if err != nil {
+		p.output(fmt.Sprintf("Handshake failed: %v", err))
+		return
+	}
+	msg = strings.TrimSpace(msg)
+
+	if !strings.HasPrefix(msg, "HELLO:") {
+		p.output("Invalid handshake message")
+		return
+	}
+
+	peerAddr := strings.TrimPrefix(msg, "HELLO:")
+	if peerAddr == p.connString {
+		p.output("Rejecting self-connection")
+		return
+	}
+
+	p.connectionLock.Lock()
+	if len(p.connections) >= p.maxPeers {
+		p.connectionLock.Unlock()
+		p.output("Max connections reached - rejecting")
+		return
+	}
+	p.connections[peerAddr] = conn
+	p.connectionLock.Unlock()
+
+	defer func() {
+		p.connectionLock.Lock()
+		delete(p.connections, peerAddr)
+		p.connectionLock.Unlock()
+	}()
+
+	conn.SetDeadline(time.Time{})
+	p.output(fmt.Sprintf("Connected to %s", peerAddr))
+
+	p.sharePeers(conn, peerAddr)
+
+	for {
+		msg, err := reader.ReadString('\n')
+		if err != nil {
+			p.output(fmt.Sprintf("Connection closed: %v", err))
+			return
+		}
+
+		msg = strings.TrimSpace(msg)
+		switch {
+		case msg == "GET_PEERS":
+			p.sendPeerList(conn)
+		case strings.HasPrefix(msg, "PEERS:"):
+			p.updatePeerCache(strings.Split(strings.TrimPrefix(msg, "PEERS:"), ","))
+		}
+	}
+}
+
+func (p *Peer) Connect(addr string) error {
+	if addr == p.connString {
+		return fmt.Errorf("self-connection attempt")
+	}
+
+	p.connectionLock.Lock()
+	if _, exists := p.connections[addr]; exists {
+		p.connectionLock.Unlock()
+		return fmt.Errorf("already connected")
+	}
+	p.connectionLock.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), connectionTimeout)
+	defer cancel()
+
+	dialer := &net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "tcp6", addr)
+	if err != nil {
+		return fmt.Errorf("connection failed: %w", err)
+	}
+
+	_, err = fmt.Fprintf(conn, "HELLO:%s\n", p.connString)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("handshake failed: %w", err)
+	}
+
+	p.connectionLock.Lock()
+	p.connections[addr] = conn
+	p.connectionLock.Unlock()
+
+	go p.handleOutgoingConnection(conn, addr)
+	return nil
+}
+
+func (p *Peer) sharePeers(conn net.Conn, excludeAddr string) {
+	p.connectionLock.Lock()
+	peers := make([]string, 0, len(p.connections))
+	for addr := range p.connections {
+		if addr != excludeAddr {
+			peers = append(peers, addr)
+		}
+	}
+	p.connectionLock.Unlock()
+
+	if len(peers) > 0 {
+		fmt.Fprintf(conn, "PEERS:%s\n", strings.Join(peers, ","))
+	}
+}
+
+func (p *Peer) sendPeerList(conn net.Conn) {
+	p.connectionLock.Lock()
+	defer p.connectionLock.Unlock()
+
+	peers := make([]string, 0, len(p.connections))
+	for addr := range p.connections {
+		peers = append(peers, addr)
+	}
+	fmt.Fprintf(conn, "PEERS:%s\n", strings.Join(peers, ","))
+}
+
+func (p *Peer) updatePeerCache(peers []string) {
+	p.peerCacheLock.Lock()
+	defer p.peerCacheLock.Unlock()
+	existing := make(map[string]bool)
+	for _, peer := range p.peerCache {
+		existing[peer] = true
+	}
+	for _, peer := range peers {
+		if !existing[peer] && peer != p.connString {
+			p.peerCache = append(p.peerCache, peer)
+		}
+	}
+}
+
+func (p *Peer) peerMaintenance() {
+	defer p.wg.Done()
+
+	ticker := time.NewTicker(reconnectInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.stopChan:
+			return
+		case <-ticker.C:
+			p.connectionLock.Lock()
+			currentConnections := len(p.connections)
+			p.connectionLock.Unlock()
+
+			if currentConnections < p.maxPeers {
+				p.tryConnectToCachedPeers(p.maxPeers - currentConnections)
+			}
+		}
+	}
+}
+
+func (p *Peer) tryConnectToCachedPeers(max int) {
+	p.peerCacheLock.Lock()
+	defer p.peerCacheLock.Unlock()
+
+	for i := 0; i < len(p.peerCache) && max > 0; i++ {
+		peer := p.peerCache[i]
+		if err := p.Connect(peer); err == nil {
+			max--
+			p.peerCache = append(p.peerCache[:i], p.peerCache[i+1:]...)
+			i--
+		}
+	}
+}
+
+func (p *Peer) Stop() {
+	close(p.stopChan)
+	p.listener.Close()
+
+	p.connectionLock.Lock()
+	for _, conn := range p.connections {
+		conn.Close()
+	}
+	p.connections = make(map[string]net.Conn)
+	p.connectionLock.Unlock()
+
+	p.wg.Wait()
+	p.output("Peer stopped successfully")
+}
+
+func (p *Peer) GetConnections() []string {
+	p.connectionLock.Lock()
+	defer p.connectionLock.Unlock()
+
+	conns := make([]string, 0, len(p.connections))
+	for addr := range p.connections {
+		conns = append(conns, addr)
+	}
+	return conns
+}
+
+func (p *Peer) GetConnString() string {
+	return p.connString
+}
