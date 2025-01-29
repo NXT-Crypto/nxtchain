@@ -46,7 +46,7 @@ func main() {
 	localIP := getLocalIP()
 	fmt.Printf("Your IP address: %s\n", localIP)
 	fmt.Printf("Your connection string: %s\n", peer.GetConnString())
-	fmt.Printf("Your public ip (MAKE SURE IF THIS WORKS): %s \n", gonetic.GetPublicIP())
+	fmt.Printf("Your public ip (MAKE SURE IF THIS WORKS): %s \n", peer.GetConnString())
 	fmt.Printf("Port: %s\n", peer.Port)
 
 	fmt.Println("\nTo connect to another peer, enter their connection string (or press Enter to skip):")
