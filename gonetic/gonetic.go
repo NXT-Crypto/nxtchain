@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"nxtchain/nextutils"
 	"strings"
 	"sync"
 	"time"
@@ -44,10 +45,11 @@ func NewPeer(output OutputFunc, maxPeerList int, port ...string) (*Peer, error) 
 	}
 
 	return &Peer{
-		Port:        assignedPort,
-		Output:      output,
-		maxPeerList: maxPeerList,
-		stopChan:    make(chan struct{}),
+		Port:           assignedPort,
+		Output:         output,
+		maxPeerList:    maxPeerList,
+		stopChan:       make(chan struct{}),
+		connectedPeers: sync.Map{},
 	}, nil
 }
 
@@ -75,7 +77,7 @@ func (p *Peer) Start() error {
 				case <-p.stopChan:
 					return
 				default:
-					fmt.Println("Failed to accept connection:", err)
+					nextutils.Error("Failed to accept connection:", err)
 					continue
 				}
 			}
@@ -101,6 +103,9 @@ func (p *Peer) Start() error {
 }
 
 func (p *Peer) SendToPeer(connString string, message string) error {
+	if p == nil {
+		return fmt.Errorf("peer instance is nil")
+	}
 	value, ok := p.connectedPeers.Load(connString)
 	if !ok {
 		return fmt.Errorf("no peer found with connString: %s", connString)
@@ -115,6 +120,9 @@ func (p *Peer) SendToPeer(connString string, message string) error {
 }
 
 func (p *Peer) Send(conn net.Conn, data string) error {
+	if conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
 	writer := bufio.NewWriter(conn)
 	_, err := writer.WriteString(data + "\n")
 	if err != nil {
@@ -198,7 +206,7 @@ func (p *Peer) pingPeers() {
 				conn := value.(net.Conn)
 				err := p.Send(conn, "PING")
 				if err != nil {
-					log.Printf("Failed to ping %s: %v", key, err)
+					nextutils.Error("Failed to ping %s: %v", key, err)
 				}
 				return true
 			})
@@ -213,7 +221,7 @@ func (p *Peer) Broadcast(message string) {
 		conn := value.(net.Conn)
 		err := p.Send(conn, message)
 		if err != nil {
-			log.Printf("Failed to broadcast to %s: %v", key, err)
+			nextutils.Error("Failed to broadcast to %s: %v", key, err)
 		}
 		return true
 	})
@@ -257,6 +265,7 @@ func getLocalIP() string {
 func (p *Peer) Connect(connString string) error {
 	conn, err := net.Dial("tcp", connString)
 	if err != nil {
+		nextutils.Error("failed to connect to peer %s: %v", connString, err)
 		return fmt.Errorf("failed to connect to peer %s: %v", connString, err)
 	}
 
@@ -264,6 +273,7 @@ func (p *Peer) Connect(connString string) error {
 	_, exists := p.connectedPeers.Load(peerID)
 	if exists {
 		conn.Close()
+		nextutils.Error("peer %s is already connected", peerID)
 		return fmt.Errorf("peer %s is already connected", peerID)
 	}
 

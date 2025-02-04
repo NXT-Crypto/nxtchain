@@ -1,0 +1,10 @@
+{
+    "fields": {
+        "block_dir": "blocks",
+        "default_port": "",
+        "max_connections": 50,
+        "privatekey_name": "privatekey",
+        "publickey_name": "publickey",
+        "seed_nodes": []
+    }
+}
