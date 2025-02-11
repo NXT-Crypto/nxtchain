@@ -53,7 +53,7 @@ func start(Peer *gonetic.Peer, msg ...string) {
 	nextutils.NewLine()
 	nextutils.Debug("%s", "Starting wallet...")
 	nextutils.Debug("%s", "Connection string: "+Peer.GetConnString())
-	fmt.Println("YOUR CONNECTION STRING: " + Peer.GetConnString())
+	nextutils.Info("%s", "Your connection string: "+Peer.GetConnString())
 
 	// ! Wallet's seed nodes are not necessary, you could also use an API that is connected to the network, aslong you can send transactions
 

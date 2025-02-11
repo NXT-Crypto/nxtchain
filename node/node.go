@@ -55,7 +55,7 @@ func start(Peer *gonetic.Peer) {
 	nextutils.NewLine()
 	nextutils.Debug("%s", "Beginning node main actions...")
 	nextutils.Debug("%s", "Connection string: "+Peer.GetConnString())
-	fmt.Println("YOUR CONNECTION STRING: " + Peer.GetConnString())
+	nextutils.Info("%s", "Your connection string: "+Peer.GetConnString())
 
 	// ~ NODE MAIN ACTIONS & LOG ~ //
 	for {
@@ -74,14 +74,14 @@ func start(Peer *gonetic.Peer) {
 				break
 			} else if strings.HasPrefix(input, "$connections") {
 				connected := Peer.GetConnectedPeers()
-				fmt.Println("+- CONNECTED PEERS -")
+				nextutils.Info("+- CONNECTED PEERS -")
 				for _, conn := range connected {
-					fmt.Println("+- " + conn)
+					nextutils.Info("%s", "+- "+conn)
 				}
 			} else if strings.HasPrefix(input, "$blockheight") {
 				blockh := nxtblock.GetLocalBlockHeight(blockdir)
-				fmt.Println("+- BLOCK HEIGHT -")
-				fmt.Println("+- " + strconv.Itoa(blockh))
+				nextutils.Info("+- BLOCK HEIGHT -")
+				nextutils.Info("%s", "+- "+strconv.Itoa(blockh))
 			} else if strings.HasPrefix(input, "$sync") {
 				nextutils.NewLine()
 				nextutils.Debug("%s", "Starting syncronization...")
@@ -89,7 +89,7 @@ func start(Peer *gonetic.Peer) {
 				syncBlockchain(Peer)
 				syncUTXODB(Peer)
 				nextutils.Debug("%s", "Syncronization complete.")
-				fmt.Println("+- SYNC COMPLETE -")
+				nextutils.Info("+- SYNC COMPLETE -")
 			} else if strings.HasPrefix(input, "$restart") {
 				start(Peer)
 			}
@@ -121,10 +121,10 @@ func startBlockchainSync(selectedHeight int, peer *gonetic.Peer) {
 
 	for i := selectedHeight; i < localHeight; i++ {
 		progress := float64(i-selectedHeight) / total * 100
-		fmt.Printf("\rSynchronizing blocks: %.1f%% (%d/%d)", progress, i-selectedHeight, remainingBlockHeights)
+		nextutils.Info("\rSynchronizing blocks: %.1f%% (%d/%d)", progress, i-selectedHeight, remainingBlockHeights)
 		peer.Broadcast("RGET_BLOCK_" + strconv.Itoa(i) + "_" + peer.GetConnString())
 	}
-	fmt.Printf("\rSynchronizing blocks: 100.0%% (%d/%d)\n", remainingBlockHeights, remainingBlockHeights)
+	nextutils.Info("\rSynchronizing blocks: 100.0%% (%d/%d)\n", remainingBlockHeights, remainingBlockHeights)
 	nextutils.Debug("Block synchronization requests completed")
 }
 func getMostFrequentBlockHeight() int {
@@ -353,7 +353,7 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				return
 			}
 			nextutils.Debug("%s", "Block (ID: "+newBlock.Id+") is valid.")
-			fmt.Println("Block (ID: " + newBlock.Id + ") is valid.")
+			nextutils.Info("%s", "Block (ID: "+newBlock.Id+") is valid.")
 			nextutils.Debug("Saving block...")
 			path := nxtblock.SaveBlock(newBlock, blockdir)
 			nextutils.Debug("%s", "Block saved: "+path)

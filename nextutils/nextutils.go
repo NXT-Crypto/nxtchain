@@ -10,6 +10,16 @@ import (
 var (
 	debugEnabled bool
 	debugLogger  *log.Logger
+
+	colorReset = "\033[0m"
+
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorBlue   = "\033[34m"
+	colorPurple = "\033[35m"
+	colorCyan   = "\033[36m"
+	colorWhite  = "\033[37m"
 )
 
 func EnableDebug(logFile string) error {
@@ -46,14 +56,21 @@ func InitDebugger(withFile bool) {
 func Debug(format string, v ...interface{}) {
 	if debugEnabled && debugLogger != nil {
 		msg := fmt.Sprintf(format, v...)
-		debugLogger.Printf("[DEBUG] %s", msg)
+		debugLogger.Printf("[%sDEBUG%s] %s", colorBlue, colorReset, msg)
 	}
 }
 
 func Error(format string, v ...interface{}) {
 	if debugEnabled && debugLogger != nil {
 		msg := fmt.Sprintf(format, v...)
-		debugLogger.Printf("[ERROR] %s", msg)
+		debugLogger.Printf("[%sERROR%s] %s", colorRed, colorReset, msg)
+	}
+}
+
+func Info(format string, v ...interface{}) {
+	if debugEnabled && debugLogger != nil {
+		msg := fmt.Sprintf(format, v...)
+		debugLogger.Printf("[%sINFO%s] %s", colorGreen, colorReset, msg)
 	}
 }
 
@@ -70,10 +87,13 @@ func PrintLogo(addText string, dev bool) {
 /_/|_/_/|_| /_/  \___/_//_/_/ |_/___/_/|_/  
 %s `, addText)
 
+	fmt.Println()
 	fmt.Print(logo)
 
 	if dev {
 		devMsg := "\n+===========================================+\n|< [ D E V E L O P E M E N T  -  M O D E ] >|\n+===========================================+"
+		fmt.Println()
 		fmt.Println(devMsg)
 	}
+	fmt.Println()
 }

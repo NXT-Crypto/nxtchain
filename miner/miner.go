@@ -72,7 +72,7 @@ func start(peer *gonetic.Peer) {
 	nextutils.NewLine()
 	nextutils.Debug("%s", "Beginning miner main actions...")
 	nextutils.Debug("%s", "Connection string: "+peer.GetConnString())
-	fmt.Println("+- YOUR CONNECTION STRING: " + peer.GetConnString())
+	nextutils.Info("%s", "Your connection string: "+peer.GetConnString())
 	nextutils.NewLine()
 	nextutils.Debug("%s", "Waiting for peers to sync...")
 	fmt.Println("+- WAITING FOR PEERS TO SYNC -")
