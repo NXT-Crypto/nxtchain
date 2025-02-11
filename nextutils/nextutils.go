@@ -76,7 +76,9 @@ func Info(format string, v ...interface{}) {
 
 func NewLine() {
 	if debugEnabled && debugLogger != nil {
+		debugLogger.Println()
 		debugLogger.Println("=============================================")
+		debugLogger.Println()
 	}
 }
 
