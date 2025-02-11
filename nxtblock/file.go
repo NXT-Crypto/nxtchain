@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+type Wallet struct {
+	PrivateKey []byte `json:"private_key"`
+	PublicKey  []byte `json:"public_key"`
+}
+
 // * SAVE BLOCK * //
 
 func SaveBlock(block Block, dir string) string {
@@ -101,6 +106,31 @@ func GetLatestBlock(dir string, ignoreEmpty bool) (Block, error) {
 	return latestBlock, nil
 }
 
+// * GET LATEST BLOCKS * //
+
+func GetLatestBlocks(dir string, count int) ([]Block, error) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var blocks []Block
+	for _, file := range files {
+		block, err := LoadBlock(file.Name(), dir)
+		if err != nil {
+			continue
+		}
+		blocks = append(blocks, block)
+	}
+	if len(blocks) == 0 {
+		return nil, os.ErrNotExist
+	}
+	if count > len(blocks) {
+		count = len(blocks)
+	}
+	return blocks[:count], nil
+}
+
 // * GET LOCAL BLOCKHEIGHT * //
 
 func GetLocalBlockHeight(dir string) int {
@@ -141,4 +171,112 @@ func GetBlockByHeight(height int, dir string) (Block, error) {
 		}
 	}
 	return Block{}, os.ErrNotExist
+}
+
+// * SAVE WALLET * //
+
+func SaveWallet(wallet Wallet, dir string) string {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("Error creating directory: %v", err)
+		return ""
+	}
+
+	walletJSON, err := json.Marshal(wallet)
+	if err != nil {
+		log.Printf("Error marshaling wallet: %v", err)
+		return ""
+	}
+
+	path := filepath.Join(dir, GenerateWalletAddress(wallet.PublicKey)+".json")
+	if err := os.WriteFile(path, walletJSON, 0644); err != nil {
+		log.Printf("Error writing wallet file: %v", err)
+		return ""
+	}
+	return path
+}
+
+// * LOAD WALLET * //
+
+func LoadWallet(address, dir string) (Wallet, error) {
+	var filename string = ""
+	if !strings.HasSuffix(address, ".json") {
+		filename = filepath.Join(dir, address+".json")
+	} else {
+		filename = filepath.Join(dir, address)
+	}
+
+	walletJSON, err := os.ReadFile(filename)
+	if err != nil {
+		return Wallet{}, err
+	}
+
+	var wallet Wallet
+	if err := json.Unmarshal(walletJSON, &wallet); err != nil {
+		return Wallet{}, err
+	}
+	return wallet, nil
+}
+
+// * DELETE WALLET * //
+
+func DeleteWallet(address, dir string) error {
+	filename := filepath.Join(dir, address+".json")
+	return os.Remove(filename)
+}
+
+// * GET ALL WALLETS * //
+
+func GetAllWallets(dir string) ([]Wallet, error) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var wallets []Wallet
+	for _, file := range files {
+		wallet, err := LoadWallet(file.Name(), dir)
+		if err != nil {
+			continue
+		}
+		wallets = append(wallets, wallet)
+	}
+	return wallets, nil
+}
+
+// * GET ALL TRANSACTIONS BY WALLET (Getting input & outputs) * //
+
+func GetAllTransactionsFromBlocks(blockdir string, walletaddr string) map[string]Transaction {
+	files, err := os.ReadDir(blockdir)
+	transactions := make(map[string]Transaction)
+	if err != nil {
+		log.Printf("Error reading directory: %v", err)
+		return transactions
+	}
+
+	var blocks []Block
+
+	for _, file := range files {
+		block, err := LoadBlock(file.Name(), blockdir)
+		if err != nil {
+			continue
+		}
+		blocks = append(blocks, block)
+	}
+
+	for _, block := range blocks {
+		for _, tx := range block.Transactions {
+			for _, input := range tx.Inputs {
+				if string(input.PublicKey) == walletaddr {
+					transactions[tx.Hash] = tx
+				}
+			}
+			for _, output := range tx.Outputs {
+				if string(output.ReceiverAddr) == walletaddr {
+					transactions[tx.Hash] = tx
+				}
+			}
+		}
+	}
+
+	return transactions
 }

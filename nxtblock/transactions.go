@@ -2,9 +2,12 @@ package nxtblock
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"math/rand"
 	"nxtchain/nxtutxodb"
 	"nxtchain/pqckpg_api"
+	"time"
 )
 
 type TInput struct {
@@ -153,4 +156,121 @@ func UTXOExists(txid string, index int) bool {
 		}
 	}
 	return false
+}
+
+// * GENERATE TRANSACTION ID * //
+
+func GenerateTransactionID() string {
+	timestamp := time.Now().UnixNano()
+	random := rand.New(rand.NewSource(timestamp))
+	id := random.Int63()
+	return fmt.Sprintf("%d", id)
+}
+
+// * GENERATE TRANSACTION HASH * //
+
+func GenerateTransactionHash(transaction Transaction) string {
+	var data string
+	for _, input := range transaction.Inputs {
+		data += input.Txid + fmt.Sprintf("%d", input.Index)
+	}
+	for _, output := range transaction.Outputs {
+		data += output.ReceiverAddr + fmt.Sprintf("%d", output.Amount)
+	}
+	hashData := data + transaction.ID
+	hashData += GenerateTransactionID()
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(hashData)))
+}
+
+// * PREPARE TRANSACTION * //
+
+func PrepareTransaction(outputs []TOutput) Transaction {
+
+	var transaction Transaction
+	transaction.ID = GenerateTransactionID()
+	transaction.Timestamp = time.Now().UnixNano()
+	transaction.Outputs = outputs
+	transaction.Hash = GenerateTransactionHash(transaction)
+
+	return transaction
+}
+
+// * CREATE TRANSACTION INPUT * //
+
+func CreateTransactionInput(txid string, index int, privateKey []byte, publicKey []byte, hash string) TInput {
+	signature := pqckpg_api.Sign(privateKey, []byte(hash))
+	return TInput{
+		Txid:      txid,
+		Index:     index,
+		Signature: signature,
+		PublicKey: publicKey,
+	}
+}
+
+// * CREATE TRANSACTION OUTPUT * //
+
+func CreateTransactionOutput(index int, amount int64, receiverAddr string) TOutput {
+	return TOutput{
+		Index:        index,
+		Amount:       amount,
+		ReceiverAddr: receiverAddr,
+	}
+}
+
+// * PREPARE UTXO FOR SENDIND * //
+
+func PrepareUTXOForWalletSender(walletAddr string) (string, map[string]nxtutxodb.UTXO, error) {
+	var inputs []nxtutxodb.UTXO
+	utxoMap := make(map[string]nxtutxodb.UTXO)
+
+	for _, utxo := range nxtutxodb.GetUTXODatabase() {
+		if utxo.PubKey == walletAddr {
+			input := nxtutxodb.UTXO{
+				Txid:              utxo.Txid,
+				Index:             utxo.Index,
+				Amount:            utxo.Amount,
+				PubKey:            utxo.PubKey,
+				BlockHeight:       utxo.BlockHeight,
+				IsHeadTransaction: utxo.IsHeadTransaction,
+			}
+			inputs = append(inputs, input)
+			utxoMap[utxo.Txid] = utxo
+		}
+	}
+
+	if len(inputs) == 0 {
+		return "", nil, fmt.Errorf("no UTXOs found for wallet: %s", walletAddr)
+	}
+
+	jsonData, err := json.Marshal(inputs)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to marshal inputs: %w", err)
+	}
+
+	return string(jsonData), utxoMap, nil
+}
+
+// * RETRIEVE UTXO FROM MAP * //
+
+func RetrieveUTXOFromJSON(jsonData string) ([]nxtutxodb.UTXO, error) {
+	var utxos []nxtutxodb.UTXO
+	err := json.Unmarshal([]byte(jsonData), &utxos)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal UTXOs: %w", err)
+	}
+	return utxos, nil
+}
+
+// * RETRIEVE TRANSACTIONS FROM MAP * //
+
+func RetrieveTransactionsFromJSON(jsonData string) ([]Transaction, error) {
+	var transactions []Transaction
+	if jsonData == "{}" {
+		return nil, fmt.Errorf("no transactions found")
+	}
+	err := json.Unmarshal([]byte(jsonData), &transactions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal transactions: %w", err)
+	}
+	return transactions, nil
 }

@@ -72,7 +72,7 @@ func ValidatorValidateBlock(block Block, blockdir string, ruleset RuleSet) (bool
 	}
 
 	// ? Previous Hash korrekt? (Vorheriger Block)
-	previousBlock, err := GetLatestBlock(blockdir, false)
+	previousBlock, err := GetLatestBlock(blockdir, true)
 	if err != nil {
 		return false, err
 	}

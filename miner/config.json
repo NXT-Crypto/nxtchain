@@ -1,10 +1,16 @@
 {
     "fields": {
         "block_dir": "blocks",
-        "default_port": "",
-        "max_connections": 50,
-        "privatekey_name": "privatekey",
-        "publickey_name": "publickey",
-        "seed_nodes": []
+        "default_port": "5012",
+        "max_connections": 10,
+        "miner_currency": "NXT",
+        "miner_wallet": "",
+        "ruleset": {
+            "Difficulty": 6,
+            "MaxTransactions": 10,
+            "Version": 0,
+            "InitialReward": 50000000000000
+        },
+        "tick": 5
     }
 }
