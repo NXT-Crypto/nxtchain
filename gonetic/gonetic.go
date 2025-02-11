@@ -106,19 +106,23 @@ func (p *Peer) SendToPeer(connString string, message string) error {
 	if p == nil {
 		return fmt.Errorf("peer instance is nil")
 	}
-	value, ok := p.connectedPeers.Load(connString)
-	if !ok {
-		return fmt.Errorf("no peer found with connString: %s", connString)
+
+	var targetConn net.Conn
+	p.connectedPeers.Range(func(key, value interface{}) bool {
+		conn := value.(net.Conn)
+		if conn.RemoteAddr().String() == connString {
+			targetConn = conn
+			return false
+		}
+		return true
+	})
+
+	if targetConn == nil {
+		return fmt.Errorf("no peer found with connString: %s. Available: %s", connString, p.GetConnectedPeers())
 	}
 
-	conn, ok := value.(net.Conn)
-	if !ok {
-		return fmt.Errorf("invalid connection for peer: %s", connString)
-	}
-
-	return p.Send(conn, message)
+	return p.Send(targetConn, message)
 }
-
 func (p *Peer) Send(conn net.Conn, data string) error {
 	if conn == nil {
 		return fmt.Errorf("connection is nil")

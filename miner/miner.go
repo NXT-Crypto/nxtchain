@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"nxtchain/clitools"
 	"nxtchain/configmanager"
 	"nxtchain/gonetic"
@@ -28,14 +29,35 @@ var totalUDBresponses int
 var blockdir string = "blocks"
 var remainingBlockHeights int
 var remainingDBs int
+var tick int = 5
+var minerWallet string
+var minerCurrency string
+var timeTargetMin float64 = 10
 
 // * CONFIG * //
 var config configmanager.Config
+var ruleset nxtblock.RuleSet
+
+// ruleset := nxtblock.RuleSet{
+// 	Difficulty:      6,
+// 	MaxTransactions: 10,
+// 	Version:         0,
+// 	InitialReward:   50000000000000,
+// }
 
 // * MAIN START * //
 func main() {
 	seedNode := flag.String("seednode", "", "Optional seed node IP address")
 	debug := flag.Bool("debug", false, "Enable debug mode")
+	minerWallet := flag.String("minerwallet", "", "Miner wallet address")
+	if *minerWallet != "" {
+		configmanager.SetItem("miner_wallet", *minerWallet, &config, true)
+	}
+	minerCurrency := flag.String("currency", "NXT", "Currency to mine")
+	if *minerCurrency != "" {
+		configmanager.SetItem("miner_currency", *minerCurrency, &config, true)
+	}
+
 	flag.Parse()
 
 	startup(debug)
@@ -44,6 +66,9 @@ func main() {
 
 // * MAIN * //
 func start(peer *gonetic.Peer) {
+	if !devmode {
+		clitools.ClearScreen()
+	}
 	nextutils.NewLine()
 	nextutils.Debug("%s", "Beginning miner main actions...")
 	nextutils.Debug("%s", "Connection string: "+peer.GetConnString())
@@ -65,7 +90,95 @@ func start(peer *gonetic.Peer) {
 
 	}
 
-	// ~ NODE MAIN ACTIONS & LOG ~ //
+	var miningInProgress bool
+
+	go func() {
+		for {
+			if !miningInProgress && len(nxtblock.GetAllTransactionsFromPool()) > 0 {
+				miningInProgress = true
+				nextutils.NewLine()
+				nextutils.Debug("%s", "Mining new block...")
+				fmt.Printf("Mining new block (Transactions in mempool: %d)\n", len(nxtblock.GetAllTransactionsFromPool()))
+
+				start := time.Now()
+
+				// genesisBlock := nxtblock.Block{
+				// 	Id:           "0",
+				// 	Timestamp:    0,
+				// 	PreviousHash: "GENESIS",
+				// 	Hash:         "GENESIS",
+				// 	Data:         "GENESIS BLOCK",
+				// 	Nonce:        0,
+				// 	Transactions: []nxtblock.Transaction{},
+				// 	Ruleset:      ruleset,
+				// 	Currency:     "NXT",
+				// 	BlockHeight:  0,
+				// }
+
+				latestBlock, err := nxtblock.GetLatestBlock(blockdir, true)
+				if err != nil {
+					nextutils.Error("Error getting latest block: %v", err)
+					return
+				}
+
+				transactionMap := nxtblock.GetAllTransactionsFromPool()
+				transactions := make([]nxtblock.Transaction, 0, len(transactionMap))
+				for _, tx := range transactionMap {
+					transactions = append(transactions, tx)
+				}
+				adjustDifficulty()
+
+				// * Create block
+				newBlock, err := nxtblock.NewBlock(transactions, ruleset, minerWallet, minerCurrency, "I love NXT", latestBlock)
+				if err != nil {
+					nextutils.Error("Error creating new block: %v", err)
+					continue
+				}
+
+				elapsed := time.Since(start)
+				fmt.Printf("\n-- Done! (%s) - %s\n", elapsed, newBlock.Hash)
+
+				// * Validate block
+				nextutils.Debug("%s", "Validating new block...")
+				_, err = nxtblock.ValidatorValidateBlock(*newBlock, blockdir, ruleset)
+				if err != nil {
+					nextutils.Error("Error validating block: %v", err)
+					continue
+				}
+
+				fmt.Printf("\n[+] BLOCK IS VALID | YOU'VE EARNED %f NXT (%f)\n", nxtblock.ConvertAmount(newBlock.HeadTransactions[0].Outputs[0].Amount), newBlock.HeadTransactions[0].Outputs[0].Amount)
+
+				// * Update UTXO database
+				nxtblock.DeleteBlockUTXOs(newBlock.Transactions)
+				nxtblock.ConvertBlockToUTXO(*newBlock)
+
+				// * Save block
+				path := nxtblock.SaveBlock(*newBlock, blockdir)
+				if path == "" {
+					nextutils.Error("%s", "Error saving block")
+					continue
+				}
+
+				fmt.Println("+- Block saved: " + path)
+
+				// * Broadcast block
+				blockStr, err := nxtblock.PrepareBlockSender(*newBlock)
+				if err != nil {
+					nextutils.Error("Error: %v", err)
+					continue
+				}
+
+				peer.Broadcast("NEW_BLOCK_" + blockStr)
+				for _, tx := range transactions {
+					nxtblock.RemoveTransactionFromPool(tx)
+				}
+				miningInProgress = false
+			}
+			time.Sleep(time.Duration(tick) * time.Second)
+		}
+	}()
+
+	// ~ MINER MAIN ACTIONS & LOG ~ //
 	for {
 		var input string
 		msg, err := fmt.Scanln(&input)
@@ -109,6 +222,7 @@ func start(peer *gonetic.Peer) {
 
 // * PEER OUTPUT HANDLER * //
 func handleEvents(event string, peer *gonetic.Peer) {
+	adjustDifficulty()
 	nextutils.Debug("%s", "[PEER EVENT] "+event)
 
 	// ~ PEER EVENTS ~ //
@@ -238,25 +352,53 @@ func handleEvents(event string, peer *gonetic.Peer) {
 			}
 
 			// * VALIDATE TRANSACTION * //
-			//! JUST FOR TESTING WITHOUT SYNCRO OF UTXO DB nxtutxodb.AddUTXO("txid1", 1, 100000000000000, "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", 0, false)
+			//! TEST
+			nxtutxodb.AddUTXO("1", 0, 100000000000000, "a0352577bbb6e354f672df9ea093f8b8146b3e9e", 1, false)
+			//! -----
 			nextutils.Debug("%s", "Validating transaction (ID: "+newTransaction.ID+")...")
 			valid, err := nxtblock.ValidatorValidateTransaction(newTransaction)
 			if err != nil {
 				nextutils.Error("%s", "Error: Transaction (ID: "+newTransaction.ID+") is not valid")
 				nextutils.Error("Error: %v", err)
-				nextutils.Error(fmt.Sprintf("UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase()))
+				nextutils.Error("%s", fmt.Sprintf("UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase()))
 				return
 			}
 			if !valid {
 				nextutils.Error("%s", "Error: Transaction (ID: "+newTransaction.ID+") is not valid")
-				nextutils.Error("%s", "UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase())
+				nextutils.Error("%s", fmt.Sprintf("UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase()))
 				return
 			}
 			nextutils.Debug("%s", "Transaction (ID: "+newTransaction.ID+") is valid.")
 			nxtblock.AddTransactionToPool(newTransaction)
 			fmt.Println("[+] Added transaction: #" + newTransaction.ID + " to the mempool")
 			nextutils.Debug("%s", "Mempool size: "+strconv.Itoa(len(nxtblock.GetAllTransactionsFromPool())))
+		case "BLOCK":
+			newBlock, err := nxtblock.GetBlockSender(newObject)
+			if err != nil {
+				nextutils.Error("Error: %v", err)
+				return
+			}
 
+			nextutils.Debug("%s", "Validating block (ID: "+newBlock.Id+")...")
+			valid, err := nxtblock.ValidatorValidateBlock(newBlock, blockdir, ruleset)
+			if err != nil {
+				nextutils.Error("Error: Block (ID: " + newBlock.Id + ") is not valid")
+				nextutils.Error("Error: %v", err)
+				return
+			}
+			if !valid {
+				nextutils.Error("Error: Block (ID: " + newBlock.Id + ") is not valid")
+				return
+			}
+			nextutils.Debug("Block (ID: " + newBlock.Id + ") is valid.")
+			fmt.Println("Block (ID: " + newBlock.Id + ") is valid.")
+			nextutils.Debug("Saving block...")
+			path := nxtblock.SaveBlock(newBlock, blockdir)
+			nextutils.Debug("Block saved: " + path)
+			nextutils.Debug("Updating UTXO database...")
+			nxtblock.DeleteBlockUTXOs(newBlock.Transactions)
+			nxtblock.ConvertBlockToUTXO(newBlock)
+			nextutils.Debug("UTXO database updated.")
 		default:
 			nextutils.Debug("%s", "Unknown new object: "+newObject)
 		}
@@ -345,6 +487,51 @@ func getMostFrequentUTXODB() map[string]nxtutxodb.UTXO {
 	return maxDB
 }
 
+// * DIFFICULTY ADJUSTER * //
+
+func adjustDifficulty() {
+	nextutils.Debug("%s", "Adjusting difficulty...")
+	// ? Calculate average time between blocks
+	// ? Compare to target time
+	// ? Adjust difficulty
+
+	lblocks, err := nxtblock.GetLatestBlocks(blockdir, 20)
+	if err != nil {
+		nextutils.Error("Error getting latest blocks: %v", err)
+		return
+	}
+	blockPtrs := make([]*nxtblock.Block, len(lblocks))
+	for i := range lblocks {
+		blockPtrs[i] = &lblocks[i]
+	}
+
+	avgTime := nxtblock.CheckBlockTimestampForDifficulty(blockPtrs)
+	if avgTime == 0 {
+		nextutils.Error("%s", "Not enough blocks to calculate difficulty")
+		return
+	}
+
+	nextutils.Debug("Average time between blocks: %f", avgTime)
+	nextutils.Debug("Target time: %f", timeTargetMin)
+	avgTime = math.Round(avgTime)
+	valid := avgTime < timeTargetMin
+	nextutils.Debug("Need to change difficulty? %t", valid)
+	direction := "increase"
+	if avgTime > timeTargetMin+1 {
+		direction = "decrease"
+		ruleset.Difficulty--
+		configmanager.SetItem("ruleset", ruleset, &config, true)
+	} else if math.Abs(avgTime-timeTargetMin) <= 1 {
+		direction = "do nothing"
+	}
+	if direction == "increase" {
+		ruleset.Difficulty++
+		configmanager.SetItem("ruleset", ruleset, &config, true)
+	}
+	nextutils.Debug("Difficulty should %s", direction)
+	time.Sleep(5 * time.Minute)
+}
+
 // * PEER TO PEER * //
 func createPeer(seedNode string) {
 	nextutils.NewLine()
@@ -372,10 +559,14 @@ func createPeer(seedNode string) {
 			return
 		}
 	}
-	seedNodesInterface := config.Fields["seed_nodes"].([]interface{})
-	seedNodes := make([]string, len(seedNodesInterface))
-	for i, v := range seedNodesInterface {
-		seedNodes[i] = v.(string)
+	seedNodes := []string{}
+	if seedNodesVal, exists := config.Fields["seed_nodes"]; exists && seedNodesVal != nil {
+		if seedNodesInterface, ok := seedNodesVal.([]interface{}); ok {
+			seedNodes = make([]string, len(seedNodesInterface))
+			for i, v := range seedNodesInterface {
+				seedNodes[i] = v.(string)
+			}
+		}
 	}
 
 	if seedNode != "" {
@@ -440,8 +631,33 @@ func startup(debug *bool) {
 		nextutils.Error("Error setting block_dir: %v", err)
 		return
 	}
+	if err := configmanager.SetItem("tick", float64(5), &config, true); err != nil {
+		nextutils.Error("Error setting block_dir: %v", err)
+		return
+	}
 	if err := configmanager.SetItem("default_port", "5012", &config, true); err != nil {
 		nextutils.Error("Error setting default_port: %v", err)
+		return
+	}
+	if err := configmanager.SetItem("miner_wallet", "", &config, true); err != nil {
+		nextutils.Error("Error setting miner_wallet: %v", err)
+		return
+	}
+	if err := configmanager.SetItem("miner_currency", "NXT", &config, true); err != nil {
+		nextutils.Error("Error setting miner_currency: %v", err)
+		return
+	}
+	if err := configmanager.SetItem("max_connections", float64(10), &config, true); err != nil {
+		nextutils.Error("Error setting max_connections: %v", err)
+		return
+	}
+	if err := configmanager.SetItem("ruleset", nxtblock.RuleSet{
+		Difficulty:      6,
+		MaxTransactions: 10,
+		Version:         0,
+		InitialReward:   50000000000000,
+	}, &config, true); err != nil {
+		nextutils.Error("Error setting ruleset: %v", err)
 		return
 	}
 	nextutils.Debug("%s", "Config applied.")
@@ -452,6 +668,27 @@ func startup(debug *bool) {
 	if config.Fields["block_dir"] != nil {
 		blockdir = config.Fields["block_dir"].(string)
 	}
+	if config.Fields["tick"] != nil {
+		tick = int(config.Fields["tick"].(float64))
+	}
+	if config.Fields["miner_wallet"] != nil {
+		minerWallet := config.Fields["miner_wallet"].(string)
+		if minerWallet != "" {
+			nextutils.Debug("%s", "Miner wallet: "+minerWallet)
+		} else {
+			nextutils.Debug("%s", "No miner wallet set.")
+		}
+	}
+	if config.Fields["miner_currency"] != nil {
+		minerCurrency = config.Fields["miner_currency"].(string)
+		if minerCurrency != "" {
+			nextutils.Debug("%s", "Miner currency: "+minerCurrency)
+		} else {
+			nextutils.Debug("%s", "No miner currency set.")
+		}
+	}
 
-	nextutils.PrintLogo("V "+version+" - (c) 2025 NXTCHAIN. All rights reserved.\n-> NODE APPLICATION", devmode)
+	ruleset = config.Fields["ruleset"].(nxtblock.RuleSet)
+
+	nextutils.PrintLogo("V "+version+" - (c) 2025 NXTCHAIN. All rights reserved.\n-> MINER APPLICATION", devmode)
 }

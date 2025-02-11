@@ -1,10 +1,16 @@
 {
     "fields": {
         "block_dir": "blocks",
-        "default_port": "",
+        "default_port": "0",
         "max_connections": 50,
         "privatekey_name": "privatekey",
         "publickey_name": "publickey",
+        "ruleset": {
+            "Difficulty": 6,
+            "MaxTransactions": 10,
+            "Version": 0,
+            "InitialReward": 50000000000000
+        },
         "seed_nodes": []
     }
 }
