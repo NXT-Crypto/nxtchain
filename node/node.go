@@ -325,12 +325,12 @@ func handleEvents(event string, peer *gonetic.Peer) {
 			if err != nil {
 				nextutils.Error("%s", "Error: Transaction (ID: "+newTransaction.ID+") is not valid")
 				nextutils.Error("Error: %v", err)
-				nextutils.Error(fmt.Sprintf("UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase()))
+				nextutils.Error("%s", fmt.Sprintf("UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase()))
 				return
 			}
 			if !valid {
 				nextutils.Error("%s", "Error: Transaction (ID: "+newTransaction.ID+") is not valid")
-				nextutils.Error("%s", "UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase())
+				nextutils.Error("%s", fmt.Sprintf("UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase()))
 				return
 			}
 			nextutils.Debug("%s", "Transaction (ID: "+newTransaction.ID+") is valid.")
@@ -344,19 +344,19 @@ func handleEvents(event string, peer *gonetic.Peer) {
 			nextutils.Debug("%s", "Validating block (ID: "+newBlock.Id+")...")
 			valid, err := nxtblock.ValidatorValidateBlock(newBlock, blockdir, ruleset)
 			if err != nil {
-				nextutils.Error("Error: Block (ID: " + newBlock.Id + ") is not valid")
+				nextutils.Error("%s", "Error: Block (ID: "+newBlock.Id+") is not valid")
 				nextutils.Error("Error: %v", err)
 				return
 			}
 			if !valid {
-				nextutils.Error("Error: Block (ID: " + newBlock.Id + ") is not valid")
+				nextutils.Error("%s", "Error: Block (ID: "+newBlock.Id+") is not valid")
 				return
 			}
-			nextutils.Debug("Block (ID: " + newBlock.Id + ") is valid.")
+			nextutils.Debug("%s", "Block (ID: "+newBlock.Id+") is valid.")
 			fmt.Println("Block (ID: " + newBlock.Id + ") is valid.")
 			nextutils.Debug("Saving block...")
 			path := nxtblock.SaveBlock(newBlock, blockdir)
-			nextutils.Debug("Block saved: " + path)
+			nextutils.Debug("%s", "Block saved: "+path)
 			nextutils.Debug("Updating UTXO database...")
 			nxtblock.DeleteBlockUTXOs(newBlock.Transactions)
 			nxtblock.ConvertBlockToUTXO(newBlock)
