@@ -24,6 +24,8 @@ go.work.sum
 # env file
 .env
 ./testkeys/*
+/build
+
 /devkit/blocks
 /miner/blocks
 /wallet/wallets
