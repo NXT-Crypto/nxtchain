@@ -28,4 +28,4 @@ jobs:
       run: go test -v ./...
 
     - name: Run NxtChain Buildscript
-      run: bash ./build.sh
+      run: bash ./build.sh all
