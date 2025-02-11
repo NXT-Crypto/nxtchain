@@ -77,7 +77,7 @@ func (p *Peer) Start() error {
 				case <-p.stopChan:
 					return
 				default:
-					nextutils.Error("Failed to accept connection:", err)
+					nextutils.Error("Failed to accept connection: %v", err)
 					continue
 				}
 			}

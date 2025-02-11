@@ -244,12 +244,12 @@ func handleEvents(event string, peer *gonetic.Peer) {
 			if err != nil {
 				nextutils.Error("%s", "Error: Transaction (ID: "+newTransaction.ID+") is not valid")
 				nextutils.Error("Error: %v", err)
-				nextutils.Error(fmt.Sprintf("UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase()))
+				nextutils.Error("%s", fmt.Sprintf("UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase()))
 				return
 			}
 			if !valid {
 				nextutils.Error("%s", "Error: Transaction (ID: "+newTransaction.ID+") is not valid")
-				nextutils.Error("%s", "UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase())
+				nextutils.Error("%s", fmt.Sprintf("UTXO Database (formatted): %+v", nxtutxodb.GetUTXODatabase()))
 				return
 			}
 			nextutils.Debug("%s", "Transaction (ID: "+newTransaction.ID+") is valid.")
