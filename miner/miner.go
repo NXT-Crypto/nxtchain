@@ -80,8 +80,8 @@ func start(peer *gonetic.Peer) {
 		if len(peer.GetConnectedPeers()) > 0 {
 			nextutils.Debug("%s", "Starting syncronization...")
 			nextutils.Debug("%s", "Syncing Blockchain...")
-			syncBlockchain(peer)
 			syncUTXODB(peer)
+			syncBlockchain(peer)
 			nextutils.Debug("%s", "Syncronization complete.")
 			fmt.Println("+- SYNC COMPLETE -")
 			break
@@ -126,7 +126,16 @@ func start(peer *gonetic.Peer) {
 				for _, tx := range transactionMap {
 					transactions = append(transactions, tx)
 				}
-				adjustDifficulty()
+				allblocks, err := nxtblock.GetAllBlocks(blockdir)
+				if err != nil {
+					nextutils.Error("Error getting all blocks: %v", err)
+					return
+				}
+				if len(allblocks)%10 != 0 {
+					adjustDifficulty()
+				} else {
+					nextutils.Debug("%s", "No need to adjust difficulty")
+				}
 
 				// * Create block
 				newBlock, err := nxtblock.NewBlock(transactions, ruleset, minerWallet, minerCurrency, "I love NXT", latestBlock)
@@ -207,12 +216,27 @@ func start(peer *gonetic.Peer) {
 				nextutils.NewLine()
 				nextutils.Debug("%s", "Starting syncronization...")
 				nextutils.Debug("%s", "Syncing Blockchain...")
-				syncBlockchain(peer)
 				syncUTXODB(peer)
+				syncBlockchain(peer)
 				nextutils.Debug("%s", "Syncronization complete.")
 				fmt.Println("+- SYNC COMPLETE -")
 			} else if strings.HasPrefix(input, "$restart") {
 				start(peer)
+			} else if strings.HasPrefix(input, "$validate") {
+				blocks, err := nxtblock.GetAllBlocks(blockdir)
+				if err != nil {
+					nextutils.Error("Error getting all blocks: %v", err)
+					continue
+				}
+				for _, block := range blocks {
+					nextutils.Debug("Validating block: %s P: %s", block.Hash, block.PreviousHash)
+					_, err := nxtblock.ValidatorValidateBlock(block, blockdir, ruleset)
+					if err != nil {
+						nextutils.Error("Error validating block: %v", err)
+						continue
+					}
+					nextutils.Debug("Block is valid.")
+				}
 			}
 		} else {
 			peer.Broadcast(input)
@@ -222,7 +246,6 @@ func start(peer *gonetic.Peer) {
 
 // * PEER OUTPUT HANDLER * //
 func handleEvents(event string, peer *gonetic.Peer) {
-	adjustDifficulty()
 	nextutils.Debug("%s", "[PEER EVENT] "+event)
 
 	// ~ PEER EVENTS ~ //
@@ -247,9 +270,9 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				requester = parts[1]
 			}
 			blockHeight := nxtblock.GetLocalBlockHeight(blockdir)
-			peer.SendToPeer(requester, "RESPONSE_BLOCKHEIGHT_"+strconv.Itoa(blockHeight))
+			peer.Broadcast("RESPONSE_BLOCKHEIGHT_" + strconv.Itoa(blockHeight))
 			nextutils.Debug("%s", "[+] Sent block height to: "+requester+" ("+strconv.Itoa(blockHeight)+")")
-		} else if strings.HasPrefix(event_body, "BLOCK_") {
+		} else if isBlock := strings.HasPrefix(event_body, "BLOCK_"); isBlock {
 			parts := strings.Split(event_body, "_")
 			heightStr := parts[1]
 			requester := parts[2]
@@ -269,7 +292,7 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				nextutils.Error("Error: %v", err)
 				return
 			}
-			peer.SendToPeer(requester, "RESPONSE_BLOCK_"+blockStr)
+			peer.Broadcast("RESPONSE_BLOCK_" + blockStr)
 			nextutils.Debug("%s", "[+] Sent block to: "+requester)
 
 		} else if strings.HasPrefix(event_body, "UTXODB_") {
@@ -285,7 +308,7 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				nextutils.Error("Error: %v", err)
 				return
 			}
-			peer.SendToPeer(requester, "RESPONSE_UTXODB_"+utxoDBStr)
+			peer.Broadcast("RESPONSE_UTXODB_" + utxoDBStr)
 			nextutils.Debug("%s", "[+] Sent UTXO DB to: "+requester+" ("+strconv.Itoa(len(utxoDB))+" entries)")
 		}
 
@@ -310,6 +333,18 @@ func handleEvents(event string, peer *gonetic.Peer) {
 
 			nextutils.Debug("Block height: %d (%d/%d responses)", blockHeight, totalResponses, remainingBlockHeights)
 
+			if totalResponses == 1 {
+				go func() {
+					time.Sleep(5 * time.Second)
+					if totalResponses < remainingBlockHeights {
+						nextutils.Debug("Timeout reached, proceeding with available responses")
+						selectedHeight := getMostFrequentBlockHeight()
+						nextutils.Debug("Selected block height for sync: %d", selectedHeight)
+						startBlockchainSync(selectedHeight, peer)
+					}
+				}()
+			}
+
 			if totalResponses >= remainingBlockHeights { // * ALL RESPONSES FOR A VALID * //
 				selectedHeight := getMostFrequentBlockHeight()
 				nextutils.Debug("Selected block height for sync: %d", selectedHeight)
@@ -329,11 +364,63 @@ func handleEvents(event string, peer *gonetic.Peer) {
 
 			nextutils.Debug("UTXO DB response from: %s (%d/%d responses)", peer.GetConnString(), totalUDBresponses, remainingDBs)
 
+			go func() {
+				time.Sleep(5 * time.Second)
+				if totalUDBresponses < remainingDBs {
+					nextutils.Debug("Timeout reached, proceeding with available UTXO DB responses")
+					selectedDB := getMostFrequentUTXODB()
+					nextutils.Debug("Selected UTXO DB for sync: %v", selectedDB)
+					nxtutxodb.SetUTXODatabase(selectedDB)
+				}
+			}()
+
 			if totalUDBresponses >= remainingDBs { // * ALL RESPONSES FOR A VALID * //
 				selectedDB := getMostFrequentUTXODB()
 				nextutils.Debug("Selected UTXO DB for sync: %v", selectedDB)
 				nxtutxodb.SetUTXODatabase(selectedDB)
 			}
+		} else if strings.HasPrefix(event_body, "BLOCK_") {
+			parts := strings.SplitN(event_body, "_", 2)
+			if len(parts) < 2 {
+				nextutils.Error("%s", "Invalid event body format: "+event_body)
+				return
+			}
+			respObject := parts[1]
+			newBlock, err := nxtblock.GetBlockSender(respObject)
+			if err != nil {
+				nextutils.Error("Error: %v", err)
+				return
+			}
+
+			nextutils.Debug("%s", "Validating block (ID: "+newBlock.Id+")...")
+			valid, err := nxtblock.ValidatorValidateBlock(newBlock, blockdir, ruleset)
+			if err != nil {
+				nextutils.Error("%s", "Error: Block (ID: "+newBlock.Id+") is not valid")
+				nextutils.Error("Error: %v", err)
+				return
+			}
+			if !valid {
+				nextutils.Error("%s", "Error: Block (ID: "+newBlock.Id+") is not valid")
+				return
+			}
+			nextutils.Debug("%s", "Block (ID: "+newBlock.Id+") is valid. Saving block...")
+			path := nxtblock.SaveBlock(newBlock, blockdir)
+			nextutils.Debug("%s", "Block saved: "+path)
+			nextutils.Debug("Updating UTXO database...")
+			nxtblock.DeleteBlockUTXOs(newBlock.Transactions)
+			nxtblock.ConvertBlockToUTXO(newBlock)
+
+			allblocks, err := nxtblock.GetAllBlocks(blockdir)
+			if err != nil {
+				nextutils.Error("Error getting all blocks: %v", err)
+				return
+			}
+			if len(allblocks)%10 != 0 {
+				adjustDifficulty()
+			} else {
+				nextutils.Debug("%s", "No need to adjust difficulty")
+			}
+			nextutils.Debug("UTXO database updated.")
 		}
 	case "NEW": // * NEW - NEUE OBJEKTE * //
 		parts := strings.SplitN(event_body, "_", 2)
@@ -425,16 +512,20 @@ func startBlockchainSync(selectedHeight int, peer *gonetic.Peer) {
 	nextutils.Debug("Starting blockchain sync for block height: %d", selectedHeight)
 
 	localHeight := nxtblock.GetLocalBlockHeight(blockdir)
-	remainingBlockHeights = localHeight - selectedHeight
-	total := float64(remainingBlockHeights)
+	if selectedHeight > localHeight {
+		remainingBlockHeights = selectedHeight - localHeight
+		total := float64(remainingBlockHeights)
 
-	for i := selectedHeight; i < localHeight; i++ {
-		progress := float64(i-selectedHeight) / total * 100
-		fmt.Printf("\rSynchronizing blocks: %.1f%% (%d/%d)", progress, i-selectedHeight, remainingBlockHeights)
-		peer.Broadcast("RGET_BLOCK_" + strconv.Itoa(i) + "_" + peer.GetConnString())
+		for i := localHeight; i < selectedHeight; i++ {
+			progress := float64(i-localHeight) / total * 100
+			nextutils.Info("\rSynchronizing blocks: %.1f%% (%d/%d)", progress, i-localHeight, remainingBlockHeights)
+			peer.Broadcast("RGET_BLOCK_" + strconv.Itoa(i) + "_" + peer.GetConnString())
+		}
+		nextutils.Info("\rSynchronizing blocks: 100.0%% (%d/%d)\n", remainingBlockHeights, remainingBlockHeights)
+		nextutils.Debug("Block synchronization requests completed")
+	} else {
+		nextutils.Debug("Local blockchain is ahead or equal to network height. No sync needed.")
 	}
-	fmt.Printf("\rSynchronizing blocks: 100.0%% (%d/%d)\n", remainingBlockHeights, remainingBlockHeights)
-	nextutils.Debug("Block synchronization requests completed")
 }
 func getMostFrequentBlockHeight() int {
 	var maxHeight, maxCount int
@@ -529,6 +620,7 @@ func adjustDifficulty() {
 		configmanager.SetItem("ruleset", ruleset, &config, true)
 	}
 	nextutils.Debug("Difficulty should %s", direction)
+	nextutils.Debug("New difficulty: %d", ruleset.Difficulty)
 	time.Sleep(5 * time.Minute)
 }
 

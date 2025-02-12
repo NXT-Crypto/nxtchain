@@ -280,3 +280,38 @@ func GetAllTransactionsFromBlocks(blockdir string, walletaddr string) map[string
 
 	return transactions
 }
+
+// * GET ALL BLOCKS * //
+
+func GetAllBlocks(dir string) ([]Block, error) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var blocks []Block
+	for _, file := range files {
+		block, err := LoadBlock(file.Name(), dir)
+		if err != nil {
+			continue
+		}
+		blocks = append(blocks, block)
+	}
+	return blocks, nil
+}
+
+// * GET BLOCK BY HASH * //
+
+func GetBlockByHash(dir, hash string) (Block, error) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return Block{}, err
+	}
+
+	for _, file := range files {
+		if file.Name() == hash+".json" {
+			return LoadBlock(hash, dir)
+		}
+	}
+	return Block{}, os.ErrNotExist
+}

@@ -137,7 +137,9 @@ func CalculateBlockReward(initialReward int64, n int64) int64 {
 
 func CalculateTransactionFee(tx Transaction) (int64, error) {
 	var totalInput, totalOutput int64
-
+	//! TEST
+	nxtutxodb.AddUTXO("1", 0, 100000000000000, "a0352577bbb6e354f672df9ea093f8b8146b3e9e", 1, false)
+	//! -----
 	for _, in := range tx.Inputs {
 		amount, err := nxtutxodb.GetUTXOAmount(in.Txid, in.Index)
 		if err != nil {

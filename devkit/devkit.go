@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"math"
 	"nxtchain/nxtblock"
@@ -11,7 +12,7 @@ import (
 func main() {
 	fmt.Println("NXTChain DevKit v0.1 - 2025\n__________________________")
 
-	fmt.Print("OPTIONS:\n0. GEN GENESIS BLOCK\n1. GEN BLOCK\n2. Difficulty Adjustment\n\nEnter option: ")
+	fmt.Print("OPTIONS:\n0. GEN GENESIS BLOCK\n1. GEN BLOCK\n2. Difficulty Adjustment\n3. Block ID check\n\nEnter option: ")
 	var option int
 	fmt.Scanln(&option)
 
@@ -22,9 +23,20 @@ func main() {
 		GB()
 	case 2:
 		DFBC(10)
+	case 3:
+		BIDC()
 	default:
 		fmt.Println("Invalid option")
 	}
+}
+
+func BIDC() {
+	// BLOCK ID CHECKER
+	fmt.Println("Enter blockid parts:")
+	var strparts string
+	fmt.Scanln(&strparts)
+	blockID := fmt.Sprintf("%x", sha256.Sum256([]byte(strparts)))
+	fmt.Println("Block ID:", blockID)
 }
 func GGB() {
 	fmt.Println("Generating genesis block...")

@@ -3,7 +3,6 @@ package nxtblock
 import (
 	"crypto/sha256"
 	"fmt"
-	"nxtchain/nextutils"
 	"time"
 )
 
@@ -47,12 +46,13 @@ func IsInputAlreadyUsed(transactions []Transaction) bool {
 
 func ValidatorValidateBlock(block Block, blockdir string, ruleset RuleSet) (bool, error) {
 	// ? Block ID und Hash korrekt? (Nachbilden und vergleichen)
-	blockID := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%d%s%v%v%v",
+	blockidparts := fmt.Sprintf("%d%s%v%v%v",
 		block.Timestamp,
 		block.PreviousHash,
 		CalculateBlockFee(block.Transactions),
 		block.TransactionHash,
-		block.HeadTransactions[0].Hash))))
+		block.HeadTransactions[0].Hash)
+	blockID := fmt.Sprintf("%x", sha256.Sum256([]byte(blockidparts)))
 	blockHashParts := fmt.Sprintf("%s%d%s%s%s%d%s",
 		blockID,
 		block.Timestamp,
@@ -65,30 +65,33 @@ func ValidatorValidateBlock(block Block, blockdir string, ruleset RuleSet) (bool
 	hashBytes := sha256.Sum256([]byte(blockHashParts))
 	blockHash := fmt.Sprintf("%x", hashBytes)
 	if block.Hash != blockHash {
-		return false, fmt.Errorf("block hash mismatch: got %s, want %s", block.Hash, blockHash)
+		return false, fmt.Errorf("block hash mismatch: got %s, want %s : %s AND: %s : Fee: %d", block.Hash, blockHash, blockHashParts, blockidparts, CalculateBlockFee(block.Transactions))
 	}
 	if block.Id != blockID {
 		return false, fmt.Errorf("block ID mismatch: got %s, want %s", block.Id, blockID)
 	}
 
 	// ? Previous Hash korrekt? (Vorheriger Block)
-	previousBlock, err := GetLatestBlock(blockdir, true)
-	if err != nil {
-		return false, err
-	}
-	nextutils.Debug("Previous Block: %v", previousBlock)
-	if block.PreviousHash != previousBlock.Hash && block.PreviousHash != "GENESIS" && previousBlock.Hash != "" {
-		return false, fmt.Errorf("previous hash mismatch: got %s, want %s", block.PreviousHash, previousBlock.Hash)
+	if block.PreviousHash != "GENESIS" {
+		previousBlock, err := GetBlockByHash(blockdir, block.PreviousHash)
+		if err != nil {
+			return false, err
+		}
+		// nextutils.Debug("Previous Block: %v", previousBlock)
+		if block.PreviousHash != previousBlock.Hash && previousBlock.Hash != "" {
+			return false, fmt.Errorf("previous hash mismatch: got %s, want %s", block.PreviousHash, previousBlock.Hash)
+		}
+
+		// ? Block Height korrekt? (Vorheriger Block + 1)
+		if block.BlockHeight != previousBlock.BlockHeight+1 {
+			return false, fmt.Errorf("invalid block height: got %d want %d, previous block hash: %s", block.BlockHeight, previousBlock.BlockHeight+1, previousBlock.Hash)
+		}
+
 	}
 
 	// ? Timestamp korrekt? (Nicht zukunft)
 	if block.Timestamp > GetTimestamp() {
 		return false, fmt.Errorf("block timestamp is in the future: %d", block.Timestamp)
-	}
-
-	// ? Block Height korrekt? (Vorheriger Block + 1)
-	if block.BlockHeight != previousBlock.BlockHeight+1 {
-		return false, fmt.Errorf("invalid block height: got %d, want %d", block.BlockHeight, previousBlock.BlockHeight+1)
 	}
 
 	// ? Transaktionhash korrekt? (Alle Transaktionen)
