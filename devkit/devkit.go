@@ -2,39 +2,65 @@ package main
 
 import (
 	"crypto/sha256"
+	"flag"
 	"fmt"
 	"math"
 	"nxtchain/nxtblock"
 	"sort"
+	"strings"
 	"time"
 )
 
 func main() {
-	fmt.Println("NXTChain DevKit v0.1 - 2025\n__________________________")
+	fmt.Println("NXTChain DevKit v0.1 - © NXTCrypto 2025\n---------------------------------------")
 
-	fmt.Print("OPTIONS:\n0. GEN GENESIS BLOCK\n1. GEN BLOCK\n2. Difficulty Adjustment\n3. Block ID check\n\nEnter option: ")
-	var option int
-	fmt.Scanln(&option)
+	mode := flag.String("mode", "", "Mode to use for running the devkit. Options: block, genesis, difficulty, check")
+	parts := flag.String("parts", "", "Block ID parts used for checking. Required for check mode, redundant for other modes.")
+	flag.Parse()
 
-	switch option {
-	case 0:
-		GGB()
-	case 1:
-		GB()
-	case 2:
-		DFBC(10)
-	case 3:
-		BIDC()
-	default:
-		fmt.Println("Invalid option")
+	if *mode == "" {
+		fmt.Print("OPTIONS:\n0. GEN GENESIS BLOCK\n1. GEN BLOCK\n2. Difficulty Adjustment\n3. Block ID check\n\nEnter option: ")
+		var option int
+		fmt.Scanln(&option)
+
+		switch option {
+		case 0:
+			GGB()
+		case 1:
+			GB()
+		case 2:
+			DFBC(10)
+		case 3:
+			var strparts string
+			fmt.Println("Enter blockid parts:")
+			fmt.Scanln(&strparts)
+			BIDC(strparts)
+		default:
+			fmt.Println("Invalid option")
+		}
+	} else {
+		switch *mode {
+		case "block":
+			GB()
+		case "genesis":
+			GGB()
+		case "difficulty":
+			DFBC(10)
+		case "check":
+			if strings.TrimSpace(*parts) == "" {
+				fmt.Println("Please define block ID parts. Do this by passing -parts flag.")
+				return
+			}
+			BIDC(*parts)
+		default:
+			fmt.Println("Invalid mode")
+		}
 	}
+
 }
 
-func BIDC() {
+func BIDC(strparts string) {
 	// BLOCK ID CHECKER
-	fmt.Println("Enter blockid parts:")
-	var strparts string
-	fmt.Scanln(&strparts)
 	blockID := fmt.Sprintf("%x", sha256.Sum256([]byte(strparts)))
 	fmt.Println("Block ID:", blockID)
 }

@@ -40,7 +40,7 @@ func ValidateTransaction(transaction Transaction) (bool, error) {
 		signature := input.Signature
 		isValid := pqckpg_api.Verify([]byte(publicKey), []byte(transaction.Hash), []byte(signature))
 		if !isValid {
-			return false, fmt.Errorf("invalid signature for input with txid: %s.",
+			return false, fmt.Errorf("invalid signature for input with txid: %s",
 				input.Txid)
 		}
 	}
