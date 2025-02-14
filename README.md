@@ -27,10 +27,30 @@ NxtChain is a blockchain written in Go. It includes features such as block creat
 To build the project, simply run the provided buildscript `build.sh`:
 
 ```sh
-bash ./build.sh
+# Mark build.sh as executable if needed
+chmod +x ./build.sh
+
+# Run the script
+./build.sh
 ```
 
 The buildscript will then build the NxtChain for multiple operating systems. You will find your built binaries in the `./build` folder.
+
+If automatic builds without user inputs are required, you can add arguments after `./build.sh` as shown here:
+
+```sh
+# Build the miner
+./build.sh miner
+
+# Build the node
+./build.sh node
+
+# Build the wallets
+./build.sh wallet
+
+# Build everything
+./build.sh all
+```
 
 If you are using Windows to build the NxtChain, use a tool such as [Git Bash](https://git-scm.com/downloads/win) or [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) to run the buildscript. A batch file for Windows is **NOT** provided.
 
