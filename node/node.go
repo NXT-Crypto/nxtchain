@@ -235,7 +235,7 @@ func adjustDifficulty() {
 	nextutils.Debug("Average time between blocks: %f", avgTime)
 	nextutils.Debug("Target time: %f", timeTargetMin)
 	avgTime = math.Round(avgTime)
-	valid := avgTime < timeTargetMin
+	valid := avgTime < timeTargetMin || avgTime > timeTargetMin
 	nextutils.Debug("Need to change difficulty? %t", valid)
 	direction := "increase"
 	if avgTime > timeTargetMin+1 {
@@ -249,6 +249,7 @@ func adjustDifficulty() {
 		ruleset.Difficulty++
 		configmanager.SetItem("ruleset", ruleset, &config, true)
 	}
+	configmanager.SaveConfig(config)
 	nextutils.Debug("Difficulty should %s", direction)
 	nextutils.Debug("New difficulty: %d", ruleset.Difficulty)
 	time.Sleep(5 * time.Minute)
@@ -282,7 +283,7 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				requesterConn := parts[2]
 				nextutils.Debug("%s", "Sending inputs to: "+requesterConn+" for wallet: "+walletAddr)
 				//! TEST
-				nxtutxodb.AddUTXO("1", 0, 100000000000000, "a0352577bbb6e354f672df9ea093f8b8146b3e9e", 1, false)
+				nxtutxodb.AddUTXO("1", 0, 100000000000000, "rpiZNDkFnb7f5CnYTnoASqHHUSt1Jpn4dJLSqH4tLSw", 1, false)
 				//! -----
 				inputs := nxtutxodb.GetUTXOByWalletAddr(walletAddr)
 				inputsJson, err := json.Marshal(inputs)
@@ -298,6 +299,9 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				nextutils.Error("%s", "Invalid INPUTS request format")
 			}
 		} else if strings.HasPrefix(event_body, "BALANCE_") {
+			//! TEST
+			nxtutxodb.AddUTXO("1", 0, 100000000000000, "rpiZNDkFnb7f5CnYTnoASqHHUSt1Jpn4dJLSqH4tLSw", 1, false)
+			//! -----
 			parts := strings.Split(event_body, "_")
 			if len(parts) >= 3 {
 				walletAddr := parts[1]
@@ -313,6 +317,7 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				}
 
 				nextutils.Debug("%s", "[BALANCE] "+string(amountJson))
+				nextutils.Debug("%s", nxtutxodb.GetUTXODatabase())
 				peer.Broadcast("RESPONSE_BALANCE_" + string(amountJson) + "_" + walletAddr)
 			}
 		} else if strings.HasPrefix(event_body, "TRANSACTIONS_") {
@@ -418,7 +423,7 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				nextutils.Error("Error getting all blocks: %v", err)
 				return
 			}
-			if len(allblocks)%10 != 0 {
+			if len(allblocks)%10 == 0 {
 				adjustDifficulty()
 			} else {
 				nextutils.Debug("%s", "No need to adjust difficulty")
@@ -465,7 +470,7 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				nextutils.Error("Error getting all blocks: %v", err)
 				return
 			}
-			if len(allblocks)%10 != 0 {
+			if len(allblocks)%10 == 0 {
 				adjustDifficulty()
 			} else {
 				nextutils.Debug("%s", "No need to adjust difficulty")
@@ -643,7 +648,7 @@ func startup(debug *bool) {
 		Difficulty:      6,
 		MaxTransactions: 10,
 		Version:         0,
-		InitialReward:   50000000000000,
+		InitialReward:   5000000000000,
 	}, &config, true); err != nil {
 		nextutils.Error("Error setting ruleset: %v", err)
 		return

@@ -19,7 +19,7 @@ func main() {
 	flag.Parse()
 
 	if *mode == "" {
-		fmt.Print("OPTIONS:\n0. GEN GENESIS BLOCK\n1. GEN BLOCK\n2. Difficulty Adjustment\n3. Block ID check\n\nEnter option: ")
+		fmt.Print("OPTIONS:\n0. GEN GENESIS BLOCK\n1. GEN BLOCK\n2. Difficulty Adjustment\n3. Block ID check\n4. NXT CONVERTER TEST\n\nEnter option: ")
 		var option int
 		fmt.Scanln(&option)
 
@@ -35,6 +35,17 @@ func main() {
 			fmt.Println("Enter blockid parts:")
 			fmt.Scanln(&strparts)
 			BIDC(strparts)
+		case 4:
+			for {
+				fmt.Println("NXT AMOUNT: ")
+				var amount int64
+				fmt.Scanln(&amount)
+				fmt.Println("Converted:", nxtblock.ConvertAmount(amount))
+				fmt.Println("FLOAT AMOUNT: ")
+				var amount2 float64
+				fmt.Scanln(&amount2)
+				fmt.Println("Converted:", nxtblock.ConvertAmountBack(amount2), " NXT")
+			}
 		default:
 			fmt.Println("Invalid option")
 		}
@@ -71,7 +82,7 @@ func GGB() {
 		Difficulty:      6,
 		MaxTransactions: 10,
 		Version:         0,
-		InitialReward:   50000000000000,
+		InitialReward:   5000000000000,
 	}
 	genesisBlock := nxtblock.Block{
 		Id:           "0",
@@ -128,7 +139,7 @@ func GB() {
 		Difficulty:      6,
 		MaxTransactions: 10,
 		Version:         0,
-		InitialReward:   50000000000000,
+		InitialReward:   5000000000000,
 	}
 	// genesisBlock := nxtblock.Block{
 	// 	Id:           "0",

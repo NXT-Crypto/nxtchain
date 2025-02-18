@@ -42,7 +42,7 @@ var ruleset nxtblock.RuleSet
 // 	Difficulty:      6,
 // 	MaxTransactions: 10,
 // 	Version:         0,
-// 	InitialReward:   50000000000000,
+// 	InitialReward:   5000000000000,
 // }
 
 // * MAIN START * //
@@ -131,10 +131,14 @@ func start(peer *gonetic.Peer) {
 					nextutils.Error("Error getting all blocks: %v", err)
 					return
 				}
-				if len(allblocks)%10 != 0 {
+				if len(allblocks)%10 == 0 {
 					adjustDifficulty()
 				} else {
 					nextutils.Debug("%s", "No need to adjust difficulty")
+				}
+
+				if len(transactions) > 0 {
+					fmt.Println("+- Mapped transactions: ", transactions)
 				}
 
 				// * Create block
@@ -156,7 +160,11 @@ func start(peer *gonetic.Peer) {
 				}
 
 				fmt.Printf("\n[+] BLOCK IS VALID | YOU'VE EARNED %f NXT (%d)\n", nxtblock.ConvertAmount(newBlock.HeadTransactions[0].Outputs[0].Amount), newBlock.HeadTransactions[0].Outputs[0].Amount)
-
+				//show the user why the blockreward is what it is
+				fmt.Printf("-\tBlock reward: %d\n", nxtblock.CalculateBlockReward(ruleset.InitialReward, int64(newBlock.BlockHeight)))
+				fmt.Printf("-\tBlock fee: %d\n", nxtblock.CalculateBlockFee(newBlock.Transactions))
+				fmt.Printf("-\tBlock reward + fee: %d\n", nxtblock.CalculateBlockReward(ruleset.InitialReward, int64(newBlock.BlockHeight))+nxtblock.CalculateBlockFee(newBlock.Transactions))
+				fmt.Printf("-\tWhat you received: %d\n", newBlock.HeadTransactions[0].Outputs[0].Amount)
 				// * Update UTXO database
 				nxtblock.DeleteBlockUTXOs(newBlock.Transactions)
 				nxtblock.ConvertBlockToUTXO(*newBlock)
@@ -415,7 +423,7 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				nextutils.Error("Error getting all blocks: %v", err)
 				return
 			}
-			if len(allblocks)%10 != 0 {
+			if len(allblocks)%10 == 0 {
 				adjustDifficulty()
 			} else {
 				nextutils.Debug("%s", "No need to adjust difficulty")
@@ -440,7 +448,7 @@ func handleEvents(event string, peer *gonetic.Peer) {
 
 			// * VALIDATE TRANSACTION * //
 			//! TEST
-			nxtutxodb.AddUTXO("1", 0, 100000000000000, "a0352577bbb6e354f672df9ea093f8b8146b3e9e", 1, false)
+			nxtutxodb.AddUTXO("1", 0, 100000000000000, "rpiZNDkFnb7f5CnYTnoASqHHUSt1Jpn4dJLSqH4tLSw", 1, false)
 			//! -----
 			nextutils.Debug("%s", "Validating transaction (ID: "+newTransaction.ID+")...")
 			valid, err := nxtblock.ValidatorValidateTransaction(newTransaction)
@@ -605,7 +613,7 @@ func adjustDifficulty() {
 	nextutils.Debug("Average time between blocks: %f", avgTime)
 	nextutils.Debug("Target time: %f", timeTargetMin)
 	avgTime = math.Round(avgTime)
-	valid := avgTime < timeTargetMin
+	valid := avgTime < timeTargetMin || avgTime > timeTargetMin
 	nextutils.Debug("Need to change difficulty? %t", valid)
 	direction := "increase"
 	if avgTime > timeTargetMin+1 {
@@ -618,10 +626,11 @@ func adjustDifficulty() {
 	if direction == "increase" {
 		ruleset.Difficulty++
 		configmanager.SetItem("ruleset", ruleset, &config, true)
+
 	}
+	configmanager.SaveConfig(config)
 	nextutils.Debug("Difficulty should %s", direction)
 	nextutils.Debug("New difficulty: %d", ruleset.Difficulty)
-	time.Sleep(5 * time.Minute)
 }
 
 // * PEER TO PEER * //
@@ -747,7 +756,7 @@ func startup(debug *bool) {
 		Difficulty:      6,
 		MaxTransactions: 10,
 		Version:         0,
-		InitialReward:   50000000000000,
+		InitialReward:   5000000000000,
 	}, &config, true); err != nil {
 		nextutils.Error("Error setting ruleset: %v", err)
 		return

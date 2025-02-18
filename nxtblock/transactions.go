@@ -84,7 +84,7 @@ func CheckTransactionUTXOs(transaction Transaction) bool {
 
 func CreateTransactionHeader(minerAddr string, reward int64) Transaction {
 	return Transaction{
-		ID:     "-1",
+		ID:     GenerateTransactionID(),
 		Hash:   fmt.Sprintf("%x", sha256.Sum256([]byte(minerAddr))),
 		Inputs: []TInput{},
 		Outputs: []TOutput{
