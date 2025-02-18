@@ -132,7 +132,7 @@ func start(Peer *gonetic.Peer, msg ...string) {
 		fmt.Println("FEE:               ", fmt.Sprintf("%d%%", fee))
 		fmt.Printf("FEE IN NXT:         %d\n", int64(float64(nxtblock.ConvertAmountBack(amount))*(float64(fee)/100)))
 		fmt.Println("=====================================")
-		nextutils.Debug("%s", "Transaction details: "+fmt.Sprintf("FROM: %s, TO: %s, AMOUNT: %d, FEE: %d", walletAddr, to, amount, fee))
+		nextutils.Debug("%s", "Transaction details: "+fmt.Sprintf("FROM: %s, TO: %s, AMOUNT: %f, FEE: %d", walletAddr, to, amount, fee))
 
 		nextutils.Debug("%s", "Requesting unspent transaction outputs (UTXOs) for wallet: "+walletAddr)
 		getInputs(Peer, walletAddr)

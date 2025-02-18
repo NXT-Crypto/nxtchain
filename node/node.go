@@ -317,7 +317,7 @@ func handleEvents(event string, peer *gonetic.Peer) {
 				}
 
 				nextutils.Debug("%s", "[BALANCE] "+string(amountJson))
-				nextutils.Debug("%s", nxtutxodb.GetUTXODatabase())
+				nextutils.Debug("%v", nxtutxodb.GetUTXODatabase())
 				peer.Broadcast("RESPONSE_BALANCE_" + string(amountJson) + "_" + walletAddr)
 			}
 		} else if strings.HasPrefix(event_body, "TRANSACTIONS_") {
