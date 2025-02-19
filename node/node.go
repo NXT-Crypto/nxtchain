@@ -29,6 +29,8 @@ var remainingBlockHeights int
 var remainingDBs int
 var timeTargetMin float64 = 10
 
+var port = "0"
+
 // * CONFIG * //
 var config configmanager.Config
 var ruleset nxtblock.RuleSet
@@ -50,9 +52,10 @@ func start(Peer *gonetic.Peer) {
 		clitools.ClearScreen()
 	}
 
+	port = Peer.Port
+
 	nextutils.NewLine()
 	nextutils.Debug("%s", "Beginning node main actions...")
-	nextutils.Debug("%s", "Connection string: "+Peer.GetConnString())
 	nextutils.Info("%s", "Your connection string: "+Peer.GetConnString())
 	nextutils.NewLine()
 	nextutils.Debug("%s", "Waiting for peers to sync...")
@@ -113,19 +116,33 @@ func start(Peer *gonetic.Peer) {
 	}
 }
 
-func webserverRequestHandler(w http.ResponseWriter, r *http.Request) {
-	nextutils.Debug("Received web request: %s", r.URL.Path)
-
-	http.ServeFile(w, r, "node/index.html")
+// * HOMEPAGE HTML * //
+func GetHomepageHTML() string {
+	fmt.Printf("Request for homepage\n")
+	return fmt.Sprintf("<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\" /><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" /><title>NXTChain Node</title><style>body {font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 100; background-color: #f4f4f4; transition: background-color 0.3s, color 0.3s; } .container { text-align: center; background: white; padding: 1vh 4vw; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); transition: background-color 0.3s, color 0.3s; } h1 { color: #333; } p { color: #666; } a { color: #007bff; text-decoration: none; } a:hover { text-decoration: underline; } @media (prefers-color-scheme: dark) { body { background-color: #121212; color: #e0e0e0; } .container { background-color: #1e1e1e; color: #e0e0e0; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); } h1 { color: #ffffff; } p { color: #cccccc; } a { color: #bb86fc; } } footer { position: absolute; right: 0; bottom: 0; left: 0; width: 100%s; text-align: center; } </style></head><body><div class=\"container\"><h1>You found a NXTChain Node!</h1> <p>This node is part of the NXTChain network.</p><p>For more information, visit our <a href=\"https://github.com/NXT-Crypto/nxtchain\" >GitHub repository</a >.</p><h2>How to Add This Node to Your Miner</h2> <p>To add this node to your miner, follow these steps:</p> <div> <p> Open your miner configuration file.<br /> Add the following line to the list of nodes: <code id=\"nodeAddress\">Loading address...</code> <script> document.getElementById(\"nodeAddress\").innerText = window.location.hostname + \":%s\" </script> <br /> Save the configuration file and restart your miner. </p> </div> <p> If you encounter any issues, please refer to the <a href=\"https://github.com/NXT-Crypto/nxtchain/wiki\" >NXTChain Wiki</a> for troubleshooting tips.</p></div></body><footer><script>const year = new Date().getFullYear() document.write(\"<p>&copy; \" + (year == \"2025\" ? 2025 : \"2025 - \" + year) + ' NXTChain. All rights reserved. | Powered by <a href=\"https://github.com/NXT-Crypto/nxtchain\">NXTChain</a></p>' ) </script></footer></html>", "%", port)
 }
 
+// * SERVES HTML IF REQUESTED * //
+func webserverRequestHandler(w http.ResponseWriter, r *http.Request) {
+	nextutils.Debug("Received web request: %s", r.URL.Path)
+	html := GetHomepageHTML()
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, html)
+
+}
+
+// * START WEBSERVER * //
 func startWebserver() {
 	nextutils.Debug("Starting webserver on port %s", config.Fields["default_web_port"])
 
 	http.HandleFunc("/", webserverRequestHandler)
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%s", config.Fields["default_web_port"]), nil); err != nil {
-		nextutils.Error("Error starting web server: %v", err)
+		if err.Error() == fmt.Sprintf("listen tcp :%s: bind: permission denied", config.Fields["default_web_port"]) {
+			nextutils.Error("Error starting web server: permission denied. If you are using port 80 or 443, try running as root or change the port.")
+		} else {
+			nextutils.Error("Error starting web server: %v", err)
+		}
 		return
 	}
 
@@ -604,7 +621,6 @@ func createPeer(seedNode string) {
 		seedNodes = append(seedNodes, seedNode)
 	}
 
-	port := ""
 	if default_port != 0 {
 		port = strconv.Itoa(default_port)
 	}
@@ -677,6 +693,11 @@ func startup(debug *bool) {
 	if err := configmanager.SetItem("default_web_port", "80", &config, true); err != nil {
 		nextutils.Error("Error setting default_web_port: %v", err)
 		return
+	}
+
+	if config.Fields["default_port"] == config.Fields["default_web_port"] {
+		nextutils.Error("Error: default_port and default_web_port cannot be the same")
+		panic("address already in use")
 	}
 
 	nextutils.Debug("%s", "Config applied.")
