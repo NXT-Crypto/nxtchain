@@ -10,7 +10,7 @@
             "Difficulty": 6,
             "MaxTransactions": 10,
             "Version": 0,
-            "InitialReward": 50000000000000
+            "InitialReward": 5000000000000
         },
         "seed_nodes": []
     }

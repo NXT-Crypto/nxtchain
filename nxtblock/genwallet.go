@@ -1,19 +1,17 @@
 package nxtblock
 
 import (
-	"crypto/sha256"
-	"crypto/sha512"
-	"fmt"
 	"nxtchain/pqckpg_api"
+
+	"github.com/mr-tron/base58"
+	"golang.org/x/crypto/blake2b"
 )
 
 func GenerateWalletAddress(publicKey []byte) string {
-	pkHash := sha256.Sum256(publicKey)
-
-	sha512Hasher := sha512.New()
-	sha512Hasher.Write(pkHash[:])
-	shaHash := sha512Hasher.Sum(nil)
-	return fmt.Sprintf("%x", shaHash)
+	hash := blake2b.Sum256(publicKey)
+	addressBytes := hash[:32]
+	address := base58.Encode(addressBytes)
+	return address
 }
 
 func CreateWallet(seed []byte) Wallet {

@@ -117,7 +117,7 @@ func start(Peer *gonetic.Peer, msg ...string) {
 		var to string
 		fmt.Scanln(&to)
 		fmt.Print("AMOUNT: ") // Amount to send
-		var amount int64      // * Amount * 1.000.000.000.000
+		var amount float64    // * Amount * 1.000.000.000.000
 		fmt.Scanln(&amount)
 		fmt.Print("FEE (OPTIONAL > 0) IN % 0-100: ") // Fee percentage
 		var fee int64                                // * Fee PERCENTAGE *
@@ -127,12 +127,12 @@ func start(Peer *gonetic.Peer, msg ...string) {
 		fmt.Println("=====================================")
 		fmt.Println("FROM:              ", walletAddr)
 		fmt.Println("TO:                ", to)
-		fmt.Println("AMOUNT IN NXT:     ", nxtblock.ConvertAmountBack(float64(amount)))
+		fmt.Println("AMOUNT IN NXT:     ", nxtblock.ConvertAmountBack(amount))
 		fmt.Println("AMOUNT RAW:        ", amount)
 		fmt.Println("FEE:               ", fmt.Sprintf("%d%%", fee))
-		fmt.Printf("FEE IN NXT:         %d\n", int64(float64(nxtblock.ConvertAmountBack(float64(amount)))*(float64(fee)/100)))
+		fmt.Printf("FEE IN NXT:         %d\n", int64(float64(nxtblock.ConvertAmountBack(amount))*(float64(fee)/100)))
 		fmt.Println("=====================================")
-		nextutils.Debug("%s", "Transaction details: "+fmt.Sprintf("FROM: %s, TO: %s, AMOUNT: %d, FEE: %d", walletAddr, to, amount, fee))
+		nextutils.Debug("%s", "Transaction details: "+fmt.Sprintf("FROM: %s, TO: %s, AMOUNT: %f, FEE: %d", walletAddr, to, amount, fee))
 
 		nextutils.Debug("%s", "Requesting unspent transaction outputs (UTXOs) for wallet: "+walletAddr)
 		getInputs(Peer, walletAddr)
@@ -155,8 +155,8 @@ func start(Peer *gonetic.Peer, msg ...string) {
 
 		nextutils.Debug("%s", "Received inputs: "+fmt.Sprintf("%v", inputs))
 
-		feeAmount := (nxtblock.ConvertAmountBack(float64(amount)) * fee) / 100
-		totalNeeded := nxtblock.ConvertAmountBack(float64(amount)) + feeAmount
+		feeAmount := (nxtblock.ConvertAmountBack(amount) * fee) / 100
+		totalNeeded := nxtblock.ConvertAmountBack(amount) + feeAmount
 		var selectedInputs []nxtutxodb.UTXO
 		var totalAmount int64 = 0
 
@@ -174,8 +174,8 @@ func start(Peer *gonetic.Peer, msg ...string) {
 
 		if totalAmount < totalNeeded {
 			fmt.Printf("ERROR: Insufficient funds (%.8f NXT required, have %.8f NXT)\n",
-				float64(nxtblock.ConvertAmountBack(float64(totalNeeded))),
-				float64(nxtblock.ConvertAmountBack(float64(totalAmount))))
+				float64(totalNeeded),
+				float64(totalAmount))
 			start(Peer)
 			return
 		}
@@ -191,7 +191,7 @@ func start(Peer *gonetic.Peer, msg ...string) {
 		var tInputs []nxtblock.TInput
 		var tOutputs []nxtblock.TOutput
 
-		tOutput := nxtblock.CreateTransactionOutput(0, nxtblock.ConvertAmountBack(float64(amount)), to)
+		tOutput := nxtblock.CreateTransactionOutput(0, nxtblock.ConvertAmountBack(amount), to)
 		tOutputs = append(tOutputs, tOutput)
 
 		if change > 0 {
