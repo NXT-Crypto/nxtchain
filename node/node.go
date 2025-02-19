@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"net/http"
 	"nxtchain/clitools"
 	"nxtchain/configmanager"
 	"nxtchain/gonetic"
@@ -39,6 +40,7 @@ func main() {
 	flag.Parse()
 
 	startup(debug)
+	go startWebserver()
 	createPeer(*seedNode)
 }
 
@@ -109,6 +111,25 @@ func start(Peer *gonetic.Peer) {
 			Peer.Broadcast(input)
 		}
 	}
+}
+
+func webserverRequestHandler(w http.ResponseWriter, r *http.Request) {
+	nextutils.Debug("Received web request: %s", r.URL.Path)
+
+	http.ServeFile(w, r, "node/index.html")
+}
+
+func startWebserver() {
+	nextutils.Debug("Starting webserver on port %s", config.Fields["default_web_port"])
+
+	http.HandleFunc("/", webserverRequestHandler)
+
+	if err := http.ListenAndServe(fmt.Sprintf(":%s", config.Fields["default_web_port"]), nil); err != nil {
+		nextutils.Error("Error starting web server: %v", err)
+		return
+	}
+
+	nextutils.Debug("%s", "Web server started.")
 }
 
 // * SYNC BLOCKCHAIN * //
@@ -652,6 +673,12 @@ func startup(debug *bool) {
 		nextutils.Error("Error setting default_port: %v", err)
 		return
 	}
+
+	if err := configmanager.SetItem("default_web_port", "80", &config, true); err != nil {
+		nextutils.Error("Error setting default_web_port: %v", err)
+		return
+	}
+
 	nextutils.Debug("%s", "Config applied.")
 	for key, value := range config.Fields {
 		nextutils.Debug("- %s = %v", key, value)
@@ -661,7 +688,7 @@ func startup(debug *bool) {
 		blockdir = config.Fields["block_dir"].(string)
 	}
 
-	rulesetMap := config.Fields["ruleset"].(map[string]interface{})
+	rulesetMap := config.Fields["ruleset"].(map[string]any)
 	ruleset = nxtblock.RuleSet{
 		Difficulty:      int(rulesetMap["Difficulty"].(float64)),
 		MaxTransactions: int(rulesetMap["MaxTransactions"].(float64)),

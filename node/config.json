@@ -2,6 +2,7 @@
     "fields": {
         "block_dir": "blocks",
         "default_port": "0",
+        "default_web_port": "80",
         "max_connections": 50,
         "privatekey_name": "privatekey",
         "publickey_name": "publickey",
