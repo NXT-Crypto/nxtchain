@@ -36,8 +36,11 @@ func EnableDebug(logFile string) error {
 	return nil
 }
 
-func InitDebugger(withFile bool) {
-	debugEnabled = true
+func InitDebugger(withFile bool, options ...bool) {
+	debugEnabled = false
+	if len(options) > 0 {
+		debugEnabled = options[0]
+	}
 	if withFile {
 		if err := os.MkdirAll("logs", 0755); err != nil {
 			log.Printf("Failed to create logs directory: %v", err)
@@ -61,14 +64,14 @@ func Debug(format string, v ...interface{}) {
 }
 
 func Error(format string, v ...interface{}) {
-	if debugEnabled && debugLogger != nil {
+	if debugLogger != nil {
 		msg := fmt.Sprintf(format, v...)
 		debugLogger.Printf("[%sERROR%s] %s", colorRed, colorReset, msg)
 	}
 }
 
 func Info(format string, v ...interface{}) {
-	if debugEnabled && debugLogger != nil {
+	if debugLogger != nil {
 		msg := fmt.Sprintf(format, v...)
 		debugLogger.Printf("[%sINFO%s] %s", colorGreen, colorReset, msg)
 	}

@@ -41,7 +41,7 @@ func main() {
 	debug := flag.Bool("debug", false, "Enable debug mode")
 	flag.Parse()
 
-	startup(debug)
+	startup(&devmode, debug)
 	createPeer(*seednode)
 }
 
@@ -532,8 +532,8 @@ func createPeer(seedNode string) {
 }
 
 // * STARTUP * //
-func startup(debug *bool) {
-	nextutils.InitDebugger(*debug)
+func startup(debug *bool, withFile *bool) {
+	nextutils.InitDebugger(*withFile, *debug)
 	nextutils.NewLine()
 	nextutils.Debug("Starting wallet...")
 	nextutils.Debug("%s", "Version: "+version)

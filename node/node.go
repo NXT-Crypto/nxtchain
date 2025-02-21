@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"nxtchain/clitools"
 	"nxtchain/configmanager"
@@ -41,7 +42,7 @@ func main() {
 	debug := flag.Bool("debug", false, "Enable debug mode")
 	flag.Parse()
 
-	startup(debug)
+	startup(&devmode, debug)
 	go startWebserver()
 	createPeer(*seedNode)
 }
@@ -137,7 +138,9 @@ func startWebserver() {
 
 	http.HandleFunc("/", webserverRequestHandler)
 
-	if err := http.ListenAndServe(fmt.Sprintf(":%s", config.Fields["default_web_port"]), nil); err != nil {
+	addr := fmt.Sprintf(":%s", config.Fields["default_web_port"])
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
 		if err.Error() == fmt.Sprintf("listen tcp :%s: bind: permission denied", config.Fields["default_web_port"]) {
 			nextutils.Error("Error starting web server: permission denied. If you are using port 80 or 443, try running as root or change the port.")
 		} else {
@@ -146,7 +149,14 @@ func startWebserver() {
 		return
 	}
 
-	nextutils.Debug("%s", "Web server started.")
+	nextutils.Info("Web server successfully started on port %s", config.Fields["default_web_port"])
+
+	server := &http.Server{}
+	go func() {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			nextutils.Error("Error running web server: %v", err)
+		}
+	}()
 }
 
 // * SYNC BLOCKCHAIN * //
@@ -659,8 +669,8 @@ func createPeer(seedNode string) {
 }
 
 // * STARTUP * //
-func startup(debug *bool) {
-	nextutils.InitDebugger(*debug)
+func startup(debug *bool, withFile *bool) {
+	nextutils.InitDebugger(*withFile, *debug)
 	nextutils.NewLine()
 	nextutils.Debug("Starting node...")
 	nextutils.Debug("%s", "Version: "+version)

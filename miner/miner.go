@@ -60,7 +60,7 @@ func main() {
 
 	flag.Parse()
 
-	startup(debug)
+	startup(&devmode, debug)
 	createPeer(*seedNode)
 }
 
@@ -710,8 +710,8 @@ func createPeer(seedNode string) {
 }
 
 // * STARTUP * //
-func startup(debug *bool) {
-	nextutils.InitDebugger(*debug)
+func startup(debug *bool, withFile *bool) {
+	nextutils.InitDebugger(*withFile, *debug)
 	nextutils.NewLine()
 	nextutils.Debug("Starting miner...")
 	nextutils.Debug("%s", "Version: "+version)
